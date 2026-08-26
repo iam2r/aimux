@@ -1,0 +1,19 @@
+model = "gpt-5"
+model_provider = "PackyCode"
+
+# keep this comment
+[mcp_servers.docs]
+command = "uvx"
+args = ["mcp-server"]
+
+# another comment
+[model_providers.openai]
+name = "OpenAI"
+base_url = "https://api.openai.com/v1"
+wire_api = "responses"
+
+[model_providers.PackyCode]
+name = "PackyCode"
+base_url = "https://api.example.com"
+wire_api = "responses"
+requires_openai_auth = true

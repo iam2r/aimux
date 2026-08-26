@@ -1,0 +1,50 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "filesystem": {
+      "type": "local"
+    }
+  },
+  "theme": "dark",
+  "model": "PackyCode/gpt-4o",
+  "provider": {
+    "anthropic": {
+      "npm": "@ai-sdk/anthropic",
+      "options": {
+        "apiKey": "sk-ant-keep"
+      }
+    },
+    "openai": {
+      "npm": "@ai-sdk/openai"
+    },
+    "PackyCode": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "PackyCode",
+      "options": {
+        "baseURL": "https://api.example.com",
+        "apiKey": "sk-test-key-abcd"
+      },
+      "models": {
+        "gpt-4o": {
+          "name": "gpt-4o"
+        }
+      }
+    },
+    "old-relay": {
+      "npm": "old-package",
+      "name": "Old",
+      "options": {
+        "baseURL": "https://old.example.com",
+        "apiKey": "old-key"
+      },
+      "models": {
+        "old-model": {
+          "name": "old-model"
+        }
+      }
+    }
+  },
+  "unknownTop": {
+    "keep": true
+  }
+}

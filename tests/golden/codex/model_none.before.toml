@@ -1,0 +1,5 @@
+model = "old-model"
+model_provider = "openai"
+
+[model_providers.openai]
+name = "OpenAI"

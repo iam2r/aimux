@@ -1,0 +1,7 @@
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "https://old.example.com",
+    "ANTHROPIC_AUTH_TOKEN": "old-token",
+    "ANTHROPIC_MODEL": "old-model"
+  }
+}

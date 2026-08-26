@@ -1,0 +1,7 @@
+{
+  "OPENAI_API_KEY": "old-key",
+  "tokens": {
+    "access_token": "oauth-token"
+  },
+  "account_id": "acct-1"
+}

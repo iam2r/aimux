@@ -1,0 +1,12 @@
+{
+  "theme": "dark",
+  "compaction": {
+    "enabled": true
+  },
+  "retry": {
+    "max": 3
+  },
+  "defaultProvider": "PackyCode",
+  "defaultModel": "claude-sonnet-4-5",
+  "packages": []
+}
