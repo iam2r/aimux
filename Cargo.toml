@@ -1,0 +1,45 @@
+[package]
+name = "aimux"
+version = "0.1.0"
+edition = "2021"
+description = "Lightweight AI CLI config switcher with backup & cloud sync"
+license = "MIT"
+repository = "https://github.com/iam2r/aimux"
+publish = false
+
+[dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+toml_edit = { version = "0.22", features = ["serde"] }
+dirs = "6"
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1"
+indexmap = { version = "2", features = ["serde"] }
+log = "0.4"
+env_logger = "0.11"
+thiserror = "2"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio = { version = "1", features = ["rt", "time", "net", "io-util"] }
+sha2 = "0.10"
+hex = "0.4"
+ratatui = "0.30"
+crossterm = "0.29"
+rusqlite = { version = "0.32", features = ["bundled"] }
+which = "7"
+tempfile = "3"
+
+[target.'cfg(not(windows))'.dependencies]
+flate2 = "1"
+tar = "0.4"
+
+[target.'cfg(windows)'.dependencies]
+zip = { version = "2", default-features = false, features = ["deflate"] }
+self-replace = "1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = "symbols"
+panic = "abort"
+codegen-units = 1

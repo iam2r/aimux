@@ -1,0 +1,15 @@
+{
+  "providers": {
+    "PackyCode": {
+      "name": "PackyCode",
+      "baseUrl": "https://proxy.example.com/v1",
+      "api": "openai-completions",
+      "apiKey": "sk-test-key-abcd",
+      "models": [
+        {
+          "id": "claude-sonnet-4-5"
+        }
+      ]
+    }
+  }
+}

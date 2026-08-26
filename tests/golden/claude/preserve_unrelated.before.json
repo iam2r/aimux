@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": ["Bash"]
+  },
+  "hooks": {
+    "PreToolUse": []
+  },
+  "env": {
+    "FOO": "bar",
+    "ANTHROPIC_BASE_URL": "https://old.example.com",
+    "ANTHROPIC_AUTH_TOKEN": "old-token",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet"
+  }
+}

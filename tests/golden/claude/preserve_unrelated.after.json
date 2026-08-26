@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": ["Bash"]
+  },
+  "hooks": {
+    "PreToolUse": []
+  },
+  "env": {
+    "FOO": "bar",
+    "ANTHROPIC_BASE_URL": "https://api.example.com",
+    "ANTHROPIC_AUTH_TOKEN": "sk-test-key-abcd"
+  }
+}

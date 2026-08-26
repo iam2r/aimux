@@ -1,0 +1,8 @@
+model_provider = "PackyCode"
+model = "gpt-5"
+
+[model_providers.PackyCode]
+name = "PackyCode"
+base_url = "https://api.example.com"
+wire_api = "responses"
+requires_openai_auth = true
