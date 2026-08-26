@@ -13,6 +13,7 @@ mod speedtest;
 mod status;
 mod store;
 mod switch;
+mod try_launch;
 mod tui;
 mod update;
 mod webdav;
@@ -74,6 +75,17 @@ enum Commands {
     Test {
         /// Provider display name (same resolution as `use`)
         provider: String,
+    },
+    /// Launch a CLI against a provider without touching live configs
+    Try {
+        /// Provider display name (same resolution as `use`)
+        provider: String,
+        /// Binary to run (defaults to the app's own CLI name)
+        #[arg(long)]
+        bin: Option<String>,
+        /// Arguments passed to the CLI after `--`
+        #[arg(last = true, allow_hyphen_values = true)]
+        cli_args: Vec<String>,
     },
     /// Switch to a provider
     /// Switch to a provider (by display name)
@@ -264,6 +276,11 @@ fn run_command(cmd: Commands) -> Result<()> {
         Commands::Current { app, json } => cmd_current(app, json),
         Commands::Status { app, json } => cmd_status(app, json),
         Commands::Test { provider } => cmd_test(&provider),
+        Commands::Try {
+            provider,
+            bin,
+            cli_args,
+        } => cmd_try(&provider, bin.as_deref(), &cli_args),
         Commands::Use { provider, app } => cmd_use(provider, app),
         Commands::Add {
             app,
@@ -387,7 +404,7 @@ fn cmd_snippet(query: String, app: Option<AppId>, set: Option<String>, clear: bo
     Ok(())
 }
 
-fn load_store() -> Result<(Paths, Store)> {
+pub(crate) fn load_store() -> Result<(Paths, Store)> {
     let paths = Paths::from_env()?;
     let mut store = Store::load(&paths)?;
     // First run with no store on disk: adopt providers from hand-edited
@@ -419,6 +436,11 @@ fn cmd_current(app: Option<AppId>, json: bool) -> Result<()> {
     require_adapter(app)?;
     let (_paths, store) = load_store()?;
     print_current(&store, app, json, mask::show_secrets())
+}
+
+fn cmd_try(provider: &str, bin: Option<&str>, args: &[String]) -> Result<()> {
+    let code = try_launch::run(provider, args, bin)?;
+    std::process::exit(code);
 }
 
 fn cmd_test(provider: &str) -> Result<()> {
