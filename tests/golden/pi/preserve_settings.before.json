@@ -1,0 +1,12 @@
+{
+  "theme": "dark",
+  "compaction": {
+    "enabled": true
+  },
+  "retry": {
+    "max": 3
+  },
+  "defaultProvider": "ollama",
+  "defaultModel": "llama3",
+  "packages": []
+}
