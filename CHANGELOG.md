@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## 0.1.4 (2026-08-26)
+
+### Features
+
+- The snapshot key (b) now lives exclusively inside the Data page instead of being a global shortcut; the provider list hint and help no longer advertise it.
+
 ## 0.1.3 (2026-08-26)
 
 ### Features
