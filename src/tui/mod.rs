@@ -37,6 +37,9 @@ pub fn run(paths: Paths) -> Result<()> {
 fn event_loop(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<()> {
     loop {
         let _ = app.poll_sync();
+        if let Some(job) = app.take_pending_try() {
+            run_try_job(terminal, app, job)?;
+        }
         terminal.draw(|f| view::draw(f, app))?;
         if !event::poll(Duration::from_millis(250))? {
             continue;
@@ -51,6 +54,29 @@ fn event_loop(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<
             _ => {}
         }
     }
+    Ok(())
+}
+
+/// Hand the real terminal over to the trial CLI: leave the alternate screen,
+/// run attached to stdio, then come back and force a full repaint. Live
+/// configs stay untouched — the CLI sees only the staged temp dir.
+fn run_try_job(
+    terminal: &mut ratatui::DefaultTerminal,
+    app: &mut App,
+    job: crate::try_launch::TryJob,
+) -> Result<()> {
+    let name = job.provider_name.clone();
+    ratatui::restore();
+    let result = job.run_detached();
+    // resume even when launch failed; report through the status bar
+    let resumed = (|| -> Result<()> {
+        crossterm::terminal::enable_raw_mode()?;
+        crossterm::execute!(std::io::stdout(), crossterm::terminal::EnterAlternateScreen)?;
+        terminal.clear()?;
+        Ok(())
+    })();
+    resumed?;
+    app.note_try_result(name, result);
     Ok(())
 }
 

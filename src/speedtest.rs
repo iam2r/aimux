@@ -56,6 +56,10 @@ async fn probe(
 /// `aimux use`, so names/ids/substrings all work.
 pub async fn test_provider(store: &Store, query: &str) -> Result<SpeedResult> {
     let provider = crate::switch::resolve(store, query, None)?;
+    test_provider_inner(provider).await
+}
+
+async fn test_provider_inner(provider: &crate::store::Provider) -> Result<SpeedResult> {
     if provider.official {
         anyhow::bail!(
             "'{}' is the official native-login row — there is no custom endpoint to probe",
@@ -76,6 +80,15 @@ pub async fn test_provider(store: &Store, query: &str) -> Result<SpeedResult> {
         status,
         error,
     })
+}
+
+/// Probe by exact provider id (TUI path — no name ambiguity).
+pub async fn test_provider_by_id(store: &Store, id: &str) -> Result<SpeedResult> {
+    let provider = store
+        .providers
+        .get(id)
+        .ok_or_else(|| anyhow::anyhow!("provider '{id}' not found"))?;
+    test_provider_inner(provider).await
 }
 
 /// CLI rendering: one line per probe with a human latency/status verdict.

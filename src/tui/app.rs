@@ -22,6 +22,7 @@ use super::pages::models::{
 use super::pages::quick::{SnippetCmd, SnippetPage};
 use super::pages::settings as settings_page;
 use super::pages::sync::{self, Job, Outcome};
+use crate::try_launch::TryJob;
 
 pub enum Page {
     Providers,
@@ -60,6 +61,9 @@ pub struct App {
     pub settings_sel: usize,
     pub settings_state: ListState,
     sync_rx: Option<Receiver<Outcome>>,
+    speed_rx: Option<Receiver<Result<crate::speedtest::SpeedResult, String>>>,
+    speed_name: Option<String>,
+    pending_try: Option<TryJob>,
     setup_form: Option<Form>,
     held_form: Option<Form>,
     fetch_rx: Option<Receiver<Result<Vec<String>, String>>>,
@@ -88,6 +92,9 @@ impl App {
             settings_sel: 0,
             settings_state: ListState::default(),
             sync_rx: None,
+            speed_rx: None,
+            speed_name: None,
+            pending_try: None,
             setup_form: None,
             held_form: None,
             fetch_rx: None,
@@ -319,6 +326,8 @@ impl App {
             Action::SyncPush => self.start_job(Job::Push),
             Action::SyncPull => self.start_job(Job::Pull),
             Action::SyncSetup => self.open_sync_setup(),
+            Action::SpeedTest => self.start_speed_test(),
+            Action::TryLaunch => self.queue_try_launch(),
             Action::None => {}
         }
         false
@@ -994,7 +1003,108 @@ impl App {
         self.sync_rx = Some(sync::spawn(self.paths.clone(), job));
     }
 
+    fn start_speed_test(&mut self) {
+        if self.speed_rx.is_some() {
+            return;
+        }
+        let Some(p) = self.providers().get(self.selected).cloned() else {
+            return;
+        };
+        // official rows have no endpoint to probe
+        if p.official || p.base_url.trim().is_empty() {
+            self.status = tf("status.test_err", &[&p.name, t("status.test_no_endpoint")]);
+            return;
+        }
+        let store = self.store.clone();
+        let id = p.id.clone();
+        let name = p.name.clone();
+        self.speed_name = Some(name.clone());
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let res = crate::webdav::block_on(async {
+                crate::speedtest::test_provider_by_id(&store, &id).await
+            });
+            let _ = tx.send(res.map_err(|e| format!("{e:#}")));
+        });
+        self.speed_rx = Some(rx);
+        self.status = tf("status.testing", &[&name]);
+    }
+
+    pub fn poll_speed(&mut self) {
+        let msg = {
+            let Some(rx) = &self.speed_rx else { return };
+            match rx.try_recv() {
+                Ok(v) => Some(v),
+                Err(std::sync::mpsc::TryRecvError::Empty) => return,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => None,
+            }
+        };
+        let name = self.speed_name.take();
+        self.speed_rx = None;
+        match msg {
+            Some(Ok(r)) => {
+                self.status = tf(
+                    "status.test_ok",
+                    &[
+                        &r.name,
+                        &r.latency
+                            .map(|l| l.as_millis().to_string())
+                            .unwrap_or_default(),
+                        &r.status.map(|s| s.to_string()).unwrap_or_default(),
+                    ],
+                );
+            }
+            _ => {
+                let detail = msg
+                    .and_then(|m| m.err())
+                    .unwrap_or_else(|| "interrupted".into());
+                self.status = tf("status.test_err", &[&name.unwrap_or_default(), &detail]);
+            }
+        }
+    }
+
+    fn queue_try_launch(&mut self) {
+        let Some(p) = self.providers().get(self.selected).cloned() else {
+            return;
+        };
+        match TryJob::for_provider(&self.store, &p.id) {
+            Ok(job) => {
+                self.help = false;
+                self.status = tf("status.try_starting", &[&job.provider_name]);
+                self.pending_try = Some(job);
+            }
+            Err(e) => {
+                self.help = false;
+                self.status = format!("{e:#}");
+            }
+        }
+    }
+
+    /// The event loop takes this and runs it with the terminal suspended.
+    pub fn take_pending_try(&mut self) -> Option<TryJob> {
+        self.pending_try.take()
+    }
+
+    pub fn note_try_result(&mut self, name: String, result: Result<std::process::ExitStatus>) {
+        match result {
+            Ok(status) => {
+                self.status = tf(
+                    "status.try_done",
+                    &[
+                        &name,
+                        &status
+                            .code()
+                            .map(|c| c.to_string())
+                            .unwrap_or_else(|| "signal".into()),
+                    ],
+                );
+            }
+            Err(e) => self.status = tf("status.try_failed", &[&format!("{e:#}")]),
+        }
+    }
+
     pub fn poll_sync(&mut self) -> bool {
+        self.poll_speed();
         if self.poll_fetch() {
             return true;
         }
@@ -1522,6 +1632,72 @@ mod tests {
         assert!(text.contains("Sync"), "{text}");
         // restore flow still works from the merged page
         app.handle_key(key(KeyCode::Enter));
+    }
+
+    #[test]
+    fn speed_test_reports_testing_then_result() {
+        let td = tempfile::tempdir().unwrap();
+        let paths = Paths::for_test(td.path());
+        let mut app = sample(paths.clone());
+        // make row 0 the official row: it must be rejected, not probed
+        if let Some(p) = app.store.providers.get_mut("packy") {
+            p.official = true;
+        }
+        app.store.save(&paths).unwrap();
+
+        app.selected = 0;
+        app.handle_action(Action::SpeedTest);
+        assert!(
+            app.status.contains("no endpoint") || app.status.contains("端点"),
+            "{}",
+            app.status
+        );
+        assert!(app.speed_rx.is_none());
+
+        // row 1 probes a local mock endpoint — never the network
+        let srv = crate::webdav::mock::MockServer::start();
+        if let Some(p) = app.store.providers.get_mut("other") {
+            p.base_url = srv.collection_url("/v1");
+        }
+        app.selected = 1;
+        app.handle_action(Action::SpeedTest);
+        assert!(app.speed_rx.is_some(), "expected a probe to start");
+        for _ in 0..50 {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            app.poll_speed();
+            if app.speed_rx.is_none() {
+                break;
+            }
+        }
+        assert!(app.speed_rx.is_none(), "probe never finished");
+        assert!(
+            app.status.contains("HTTP") || app.status.contains("不可达"),
+            "{}",
+            app.status
+        );
+    }
+
+    #[test]
+    fn try_launch_queues_job_and_rejects_official() {
+        let td = tempfile::tempdir().unwrap();
+        let paths = Paths::for_test(td.path());
+        let mut app = sample(paths.clone());
+        if let Some(p) = app.store.providers.get_mut("packy") {
+            p.official = true;
+        }
+        app.store.save(&paths).unwrap();
+        // official row: rejected with a message, nothing queued
+        app.selected = 0;
+        app.handle_action(Action::TryLaunch);
+        assert!(app.pending_try.is_none());
+        // normal row: job staged (bin resolution may fail if codex absent —
+        // then status carries the error instead)
+        app.selected = 1;
+        app.handle_action(Action::TryLaunch);
+        match app.take_pending_try() {
+            Some(job) => assert!(!job.provider_name.is_empty()),
+            None => assert!(!app.status.is_empty(), "expected error status"),
+        }
     }
 
     #[test]

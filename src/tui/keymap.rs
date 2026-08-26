@@ -10,6 +10,8 @@ pub enum KeyMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
+    SpeedTest,
+    TryLaunch,
     Quit,
     ToggleHelp,
     CloseOverlay,
@@ -61,6 +63,8 @@ pub fn map_key(key: KeyEvent, mode: KeyMode) -> Action {
             _ => Action::None,
         },
         KeyCode::Char('a') | KeyCode::Char('A') if mode == KeyMode::List => Action::Add,
+        KeyCode::Char('t') | KeyCode::Char('T') if mode == KeyMode::List => Action::SpeedTest,
+        KeyCode::Char('o') | KeyCode::Char('O') if mode == KeyMode::List => Action::TryLaunch,
         KeyCode::Char('e') | KeyCode::Char('E') => match mode {
             KeyMode::List => Action::Edit,
             KeyMode::Data => Action::SyncSetup,
@@ -177,6 +181,20 @@ const HINTS: &[HintRow] = &[
         group: None,
         mode: KeyMode::List,
         checks: &[(KeyCode::Char('g'), Action::OpenSettings)],
+    },
+    HintRow {
+        display: "t",
+        label: "hint.speed_test",
+        group: None,
+        mode: KeyMode::List,
+        checks: &[(KeyCode::Char('t'), Action::SpeedTest)],
+    },
+    HintRow {
+        display: "o",
+        label: "hint.try",
+        group: None,
+        mode: KeyMode::List,
+        checks: &[(KeyCode::Char('o'), Action::TryLaunch)],
     },
     HintRow {
         display: "?",

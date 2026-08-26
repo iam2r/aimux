@@ -6,7 +6,7 @@
 //! temporary directory is removed. Live configs are never read or written.
 
 use crate::adapter::protocol;
-use crate::store::{AppId, Provider};
+use crate::store::{AppId, Provider, Store};
 use crate::switch;
 use anyhow::{Context, Result};
 use serde_json::{json, Value};
@@ -173,6 +173,42 @@ fn launch(
         .env(env_var, tmp.path())
         .status()
         .with_context(|| format!("launch {}", bin.display()))
+}
+
+/// A staged trial launch queued by the TUI: everything is prepared before
+/// the terminal is suspended so failures surface in the status bar.
+pub struct TryJob {
+    pub provider_name: String,
+    bin: std::path::PathBuf,
+    args: Vec<String>,
+    tmp: tempfile::TempDir,
+    env_var: &'static str,
+}
+
+impl TryJob {
+    /// Validate + stage a trial launch for one provider id.
+    pub fn for_provider(store: &Store, id: &str) -> Result<TryJob> {
+        let provider = switch::resolve(store, id, None)?.clone();
+        // resolve the binary up front: failing here keeps the TUI alive
+        let bin = resolve_bin(None, provider.app)?;
+        let (tmp, env_var) = stage(&provider)?;
+        Ok(TryJob {
+            provider_name: provider.name.clone(),
+            bin,
+            args: Vec::new(),
+            tmp,
+            env_var,
+        })
+    }
+
+    pub fn run_detached(&self) -> Result<std::process::ExitStatus> {
+        Command::new(&self.bin)
+            .args(&self.args)
+            .env(self.env_var, self.tmp.path())
+            .env_remove("NO_COLOR")
+            .status()
+            .with_context(|| format!("launch {}", self.bin.display()))
+    }
 }
 
 /// Resolve + stage + launch. Returns the CLI's exit status.
