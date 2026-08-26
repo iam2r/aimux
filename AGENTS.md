@@ -16,6 +16,21 @@ Releases are changeset-driven (Knope), not commit-message-driven: add a `.change
 
 Tests must never touch host configs. Use `Paths::for_test` (or set `AIMUX_CONFIG_DIR`); never write `~/.claude`, `~/.codex`, `~/.config/opencode`, or `~/.pi`.
 
+## TUI verification (Herdr, not tmux)
+
+tmux is uninstalled on this machine. Verify TUI behavior through Herdr, the terminal workspace manager (`HERDR_ENV=1` inside its panes):
+
+```bash
+herdr tab create --label aimux-verify --cwd .        # returns pane_id / tab_id
+herdr pane run <pane_id> "./target/debug/aimux"      # launch + submit Enter atomically
+herdr pane wait-output --match "switch app" <pane_id> # wait for a render
+herdr pane send-keys <pane_id> j                     # key-combo syntax: j, enter, esc, ctrl+c…
+herdr pane read <pane_id>                            # capture screen text
+herdr tab close <tab_id>
+```
+
+`pane run/send-keys/wait-output/read` address any pane regardless of occupant; `agent *` variants only work for recognized agents.
+
 ## Architecture
 
 - `main.rs` — clap CLI; every command loads through `load_store()`.
