@@ -399,12 +399,103 @@ fn draw_picker(frame: &mut Frame, picker: &mut ModelPicker, area: Rect, theme: T
     );
 }
 
-fn draw_catalog(frame: &mut Frame, editor: &CatalogEditor, area: Rect, theme: Theme) {
-    let mut header = String::from("  ");
-    for field in editor.fields {
-        header.push_str(&format!("{:<16}", models::field_label(*field)));
+fn catalog_cell_text(
+    field: &crate::adapter::models::CatalogField,
+    row: &crate::store::ModelEntry,
+) -> String {
+    match field {
+        crate::adapter::models::CatalogField::Id => row.id.clone(),
+        crate::adapter::models::CatalogField::Label => row.label.clone().unwrap_or_default(),
+        crate::adapter::models::CatalogField::ContextWindow => row
+            .context_window
+            .map(|n| n.to_string())
+            .unwrap_or_default(),
+        crate::adapter::models::CatalogField::MaxTokens => {
+            row.max_tokens.map(|n| n.to_string()).unwrap_or_default()
+        }
     }
-    let mut lines = vec![Line::from(header)];
+}
+
+/// Width of the visible text produced by caret_spans for `text`/`cursor`:
+/// character count plus one when the cursor sits past the end (the
+/// underlined insertion-point space).
+fn caret_visible_width(text: &str, cursor: usize) -> usize {
+    let c = edit::clamp(text, cursor);
+    if c >= text.chars().count() {
+        c + 1
+    } else {
+        c
+    }
+}
+
+/// Pad `text` to exactly `width` display columns, truncating with an
+/// ellipsis when it overflows.
+fn pad_cell(text: &str, width: usize) -> String {
+    let count = text.chars().count();
+    if count <= width {
+        let mut out = text.to_string();
+        out.extend(std::iter::repeat_n(' ', width - count));
+        out
+    } else if width == 0 {
+        String::new()
+    } else {
+        let mut out: String = text.chars().take(width - 1).collect();
+        out.push('\u{2026}');
+        out
+    }
+}
+
+fn draw_catalog(frame: &mut Frame, editor: &CatalogEditor, area: Rect, theme: Theme) {
+    // --- adaptive column widths -----------------------------------------
+    // Each column grows to fit its header and every row's content (clamped),
+    // then shrinks together if the terminal is too narrow. This replaces the
+    // old fixed 16-wide grid where long ids collided with later columns.
+    const MIN_COL: usize = 8;
+    const MAX_COL: usize = 34;
+    let mut widths: Vec<usize> = editor
+        .fields
+        .iter()
+        .map(|f| models::field_label(*f).chars().count())
+        .collect();
+    for (c, field) in editor.fields.iter().enumerate() {
+        for row in &editor.rows {
+            let len = catalog_cell_text(field, row).chars().count();
+            widths[c] = widths[c].max(len);
+        }
+    }
+    for w in &mut widths {
+        *w = (*w + 2).clamp(MIN_COL, MAX_COL);
+    }
+
+    // Fit into the popup: borders(2) + row prefix(2). Shrink the widest
+    // columns first until everything fits or we hit MIN_COL.
+    let avail = (area.width.saturating_sub(4) as usize).saturating_sub(2);
+    let mut total: usize = widths.iter().sum();
+    while total + 2 * widths.len() > avail && widths.iter().any(|w| *w > MIN_COL) {
+        let max_w = *widths.iter().max().unwrap();
+        for w in widths.iter_mut() {
+            if *w == max_w && *w > MIN_COL {
+                *w -= 1;
+            }
+        }
+        total = widths.iter().sum();
+    }
+    let want_w = (total as u16 + 2 + 4)
+        .min(area.width.saturating_sub(4))
+        .max(24);
+
+    // --- header -----------------------------------------------------------
+    // same ">*" prefix width as data rows so columns line up vertically
+    let mut header_spans: Vec<Span> = vec![Span::styled("  ", theme.fg(theme.dim))];
+    for (c, field) in editor.fields.iter().enumerate() {
+        header_spans.push(Span::styled(
+            pad_cell(models::field_label(*field), widths[c]),
+            theme.fg(theme.dim),
+        ));
+    }
+    let mut lines = vec![Line::from(header_spans)];
+
+    // --- rows -------------------------------------------------------------
     for (i, row) in editor.rows.iter().enumerate() {
         let star = if i == editor.default_idx { "*" } else { " " };
         let cur = if i == editor.row { ">" } else { " " };
@@ -412,38 +503,35 @@ fn draw_catalog(frame: &mut Frame, editor: &CatalogEditor, area: Rect, theme: Th
         let cell_style = theme.fg(theme.fg);
         for (c, field) in editor.fields.iter().enumerate() {
             let editing_cell = editor.editing && i == editor.row && c == editor.col;
-            let raw: String = match field {
-                crate::adapter::models::CatalogField::Id => row.id.clone(),
-                crate::adapter::models::CatalogField::Label => {
-                    row.label.clone().unwrap_or_default()
-                }
-                crate::adapter::models::CatalogField::ContextWindow => row
-                    .context_window
-                    .map(|n| n.to_string())
-                    .unwrap_or_default(),
-                crate::adapter::models::CatalogField::MaxTokens => {
-                    row.max_tokens.map(|n| n.to_string()).unwrap_or_default()
-                }
-            };
+            let raw = catalog_cell_text(field, row);
+            let selected = i == editor.row && c == editor.col;
             if editing_cell {
+                // Bracketed like the selected cell; inner width is fixed so
+                // entering edit mode never shifts the rest of the row.
+                let inner = widths[c].saturating_sub(2).max(1);
                 spans.push(Span::styled("[", cell_style));
-                let caret = edit::caret_spans(&editor.buf, editor.buf_cursor, cell_style);
-                let shown: usize = caret.iter().map(|s| s.content.chars().count()).sum();
-                spans.extend(caret);
-                // pad the editable cell to its column width
-                if shown < 15 {
-                    spans.push(Span::styled(" ".repeat(15 - shown), cell_style));
+                // Tail window: keep the cursor visible inside the fixed width.
+                let cur_c = edit::clamp(&editor.buf, editor.buf_cursor);
+                let start = cur_c.saturating_sub(inner.saturating_sub(1)).min(cur_c);
+                let window: String = editor.buf.chars().skip(start).take(inner).collect();
+                let shown = caret_visible_width(&window, cur_c - start);
+                spans.extend(edit::caret_spans(&window, cur_c - start, cell_style));
+                if shown < inner {
+                    spans.push(Span::styled(" ".repeat(inner - shown), cell_style));
                 }
                 spans.push(Span::styled("]", cell_style));
-            } else if i == editor.row && c == editor.col {
-                spans.push(Span::styled(format!("[{raw:<14}]"), cell_style));
+            } else if selected {
+                spans.push(Span::styled(
+                    format!("[{}]", pad_cell(&raw, widths[c] - 2)),
+                    cell_style,
+                ));
             } else {
-                spans.push(Span::styled(format!("{raw:<16}"), cell_style));
+                spans.push(Span::styled(pad_cell(&raw, widths[c]), cell_style));
             }
         }
         lines.push(Line::from(spans));
     }
-    popup_lines(frame, area, t("ui.catalog"), lines, theme, 18);
+    popup_lines_w(frame, area, t("ui.catalog"), lines, theme, 18, want_w);
 }
 
 fn draw_slots(frame: &mut Frame, editor: &SlotEditor, area: Rect, theme: Theme) {
@@ -548,10 +636,22 @@ fn popup_lines(
     theme: Theme,
     min_h: u16,
 ) {
+    popup_lines_w(frame, area, title, lines, theme, min_h, 72)
+}
+
+fn popup_lines_w(
+    frame: &mut Frame,
+    area: Rect,
+    title: &str,
+    lines: Vec<Line>,
+    theme: Theme,
+    min_h: u16,
+    want_w: u16,
+) {
     let h = (lines.len() as u16 + 2)
         .min(area.height.saturating_sub(2))
         .max(min_h.min(area.height.saturating_sub(2)).max(6));
-    let w = 72.min(area.width.saturating_sub(4)).max(24);
+    let w = want_w.min(area.width.saturating_sub(4)).max(24);
     let popup = centered(area, w, h);
     frame.render_widget(Clear, popup);
     frame.render_widget(
@@ -587,6 +687,69 @@ pub(crate) fn centered(area: Rect, w: u16, h: u16) -> Rect {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn catalog_editing_keeps_columns_aligned() {
+        use crate::adapter::models::OPENCODE_FIELDS;
+        use crate::store::ModelEntry;
+        use crate::tui::pages::models::CatalogEditor;
+        let make = || {
+            CatalogEditor::new(
+                OPENCODE_FIELDS,
+                vec![ModelEntry {
+                    id: "claude-opus-4-5-20250901".into(),
+                    label: Some("Opus 4.5".into()),
+                    context_window: Some(200000),
+                    max_tokens: Some(32000),
+                }],
+                None,
+            )
+        };
+
+        let render = |editing: bool| -> Vec<String> {
+            let mut editor = make();
+            editor.row = 0;
+            editor.col = 1;
+            editor.editing = editing;
+            if editing {
+                editor.buf = "Renamed Opus".into();
+                editor.buf_cursor = editor.buf.chars().count();
+            }
+            let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
+            let theme = Theme::for_app(AppId::Claude);
+            terminal
+                .draw(|f| draw_catalog(f, &editor, f.area(), theme))
+                .unwrap();
+            (0..12).map(|y| row(&terminal, y)).collect()
+        };
+
+        let idle = render(false);
+        let editing = render(true);
+
+        // The context-window value must sit at the exact same column whether
+        // the label cell next to it is idle or being edited.
+        let dump = |lines: &Vec<String>| {
+            lines
+                .iter()
+                .map(|l| format!("{:?}", l))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        let idle_x = idle
+            .iter()
+            .find_map(|l| l.find("200000"))
+            .unwrap_or_else(|| panic!("ctx in idle:\n{}", dump(&idle)));
+        let edit_x = editing
+            .iter()
+            .find_map(|l| l.find("200000"))
+            .unwrap_or_else(|| panic!("ctx in editing:\n{}", dump(&editing)));
+        assert_eq!(idle_x, edit_x, "columns shifted on entering edit mode");
+
+        // Header and data rows share the same grid.
+        let header_line = idle.iter().find(|l| l.contains("Context")).unwrap();
+        let header_x = header_line.find("Context").unwrap();
+        assert_eq!(idle_x, header_x, "data cell not under its header");
+    }
+
     use super::*;
     use crate::store::AppId;
     use ratatui::{backend::TestBackend, Terminal};
