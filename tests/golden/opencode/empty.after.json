@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "PackyCode": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "PackyCode",
+      "options": {
+        "baseURL": "https://api.example.com",
+        "apiKey": "sk-test-key-abcd"
+      },
+      "models": {
+        "gpt-4o": {
+          "name": "gpt-4o"
+        }
+      }
+    }
+  },
+  "model": "PackyCode/gpt-4o"
+}
