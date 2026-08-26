@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## 0.1.3 (2026-08-26)
+
+### Features
+
+- Merge the scattered backup and sync surfaces into a single Data page: backups list on top (j/k select, Enter restore, b snapshot), sync status below (e setup, p push, u pull). Both r and s open the page; the list footer hint and contextual help reflect the merged layout.
+
 ## 0.1.2 (2026-08-26)
 
 ### Fixes
