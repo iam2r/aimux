@@ -99,6 +99,7 @@ fn en(key: &'static str) -> &'static str {
         "ui.apps" => "Apps",
         "ui.providers" => "Providers",
         "ui.providers_title" => "Providers — {0}",
+        "ui.data" => "Data",
         "ui.backups" => "Backups",
         "ui.sync" => "Sync",
         "ui.settings" => "Settings",
@@ -110,7 +111,6 @@ fn en(key: &'static str) -> &'static str {
         "ui.syncing" => "Syncing…",
         "ui.timestamp" => "timestamp",
         "ui.named" => "named",
-        "ui.timestamp_named" => "Timestamp + named",
         "ui.webdav_unconfigured" => "WebDAV is not configured. Press e to open setup.",
         "ui.form_hint" => "Tab / ↑↓ fields  Space cycle/fetch/open  Enter submit  Esc cancel",
         "ui.confirm_hint" => "y confirm  n/Esc cancel",
@@ -166,12 +166,13 @@ fn en(key: &'static str) -> &'static str {
         "slot.fable" => "Fable",
         "slot.subagent" => "Subagent",
 
-        "status.hint_list" => "[ ] / Tab switch app  j/k or ↑↓ move  a add  e edit  d delete  b backup  r backups  s sync  g settings  ?  q",
+        "status.hint_list" => "[ ] / Tab switch app  j/k or ↑↓ move  a add  e edit  d delete  b backup  r/s data  g settings  ?  q",
         "status.hint_picker" => "j/k move  PgUp/PgDn page  Space toggle  / filter  ←→ cursor  Enter confirm  Esc cancel",
         "status.hint_catalog" => "j/k row  Tab column  e edit  n new  d delete  * default  Enter save  Esc cancel",
         "status.hint_slots" => "j/k  e edit  Space fetch  a copy to all  Enter save  Esc cancel",
         "status.hint_snippet" => "j/k checkboxes  Space toggle  Tab body  Ctrl+S save  Esc cancel",
         "status.snippet_saved" => "Snippet saved",
+        "status.data_hint" => "j/k select  Enter restore  b snapshot  e setup  p push  u pull  Esc back",
         "status.hint_settings" => "j/k or ↑↓  Space change  Esc back",
         "status.hint_help" => "? or Esc close",
         "status.hint_syncing" => "Working…  q quit",
@@ -187,9 +188,7 @@ fn en(key: &'static str) -> &'static str {
         "list.official" => "(official)",
         "status.backed_up" => "Backed up {0}",
         "status.backup_failed" => "Backup failed: {0}",
-        "status.backups_hint" => "j/k or ↑↓  Enter restore  b snapshot  Esc back",
         "status.no_restore" => "Pick a backup first.",
-        "status.sync_hint" => "e setup  p push  u pull  Esc back",
         "status.deleted" => "Deleted {0}",
         "status.delete_failed" => "Delete failed: {0}",
         "status.added" => "Added {0}",
@@ -237,26 +236,24 @@ a                    add\n\
 e                    edit\n\
 d                    delete (asks first)\n\
 b                    snapshot now\n\
-r                    backup list\n\
-s                    sync\n\
+r or s               data (backups & sync)\n\
 g                    settings\n\
 ?                    this help\n\
 q                    quit\n\
 Esc                  close this help, or quit",
-        "help.backups" => "\
-Backups\n\n\
+        "help.data" => "\
+Data — backups & sync\n\
+Backups:\n\
 j k or ↑ ↓           move\n\
 Enter                restore (asks first)\n\
 b                    snapshot now\n\
-Esc                  back to the list\n\
-q                    quit",
-        "help.sync" => "\
-Sync\n\n\
+Sync:\n\
 e                    set URL / user / password\n\
 p                    push\n\
 u                    pull\n\
-Esc                  back to list\n\
-q                    quit\n\n\
+Esc                  back to the list\n\
+q                    quit\n\
+\n\
 Files go under the built-in namespace aimux-sync (shown, not editable).",
         "help.settings" => "\
 Settings\n\n\
@@ -328,6 +325,7 @@ fn zh(key: &'static str) -> Option<&'static str> {
         "ui.apps" => "应用",
         "ui.providers" => "供应商",
         "ui.providers_title" => "供应商 — {0}",
+        "ui.data" => "数据管理",
         "ui.backups" => "备份",
         "ui.sync" => "同步",
         "ui.settings" => "设置",
@@ -339,7 +337,6 @@ fn zh(key: &'static str) -> Option<&'static str> {
         "ui.syncing" => "同步中…",
         "ui.timestamp" => "时间戳",
         "ui.named" => "命名",
-        "ui.timestamp_named" => "时间戳 + 命名",
         "ui.webdav_unconfigured" => "尚未配置 WebDAV。按 e 打开设置。",
         "ui.form_hint" => "Tab / ↑↓ 换字段  空格 切换/拉取/打开  Enter 提交  Esc 取消",
         "ui.confirm_hint" => "y 确认  n/Esc 取消",
@@ -395,12 +392,13 @@ fn zh(key: &'static str) -> Option<&'static str> {
         "slot.fable" => "Fable",
         "slot.subagent" => "子代理",
 
-        "status.hint_list" => "[ ] / Tab 切换应用  j/k 或 ↑↓ 上下  a 添加  e 编辑  d 删除  b 备份  r 备份列表  s 同步  g 设置  ?  q",
+        "status.hint_list" => "[ ] / Tab 切换应用  j/k 或 ↑↓ 上下  a 添加  e 编辑  d 删除  b 备份  r/s 数据管理  g 设置  ?  q",
         "status.hint_picker" => "j/k 移动  PgUp/PgDn 翻页  空格 勾选  / 过滤  ←→ 光标  Enter 确认  Esc 取消",
         "status.hint_catalog" => "j/k 行  Tab 列  e 编辑  n 新增  d 删除  * 默认  Enter 保存  Esc 取消",
         "status.hint_slots" => "j/k  e 编辑  空格 拉取  a 同步到全部档位  Enter 保存  Esc 取消",
         "status.hint_snippet" => "j/k 勾选  空格 切换  Tab 正文  Ctrl+S 保存  Esc 取消",
         "status.snippet_saved" => "公共配置已保存",
+        "status.data_hint" => "j/k 选择  Enter 恢复  b 立刻备份  e 设置  p 推送  u 拉取  Esc 返回",
         "status.hint_settings" => "j/k 或 ↑↓ 上下  Space 更改  Esc 返回",
         "status.hint_help" => "? 或 Esc 关闭",
         "status.hint_syncing" => "处理中…  q 退出",
@@ -416,9 +414,7 @@ fn zh(key: &'static str) -> Option<&'static str> {
         "list.official" => "（官方）",
         "status.backed_up" => "已备份 {0}",
         "status.backup_failed" => "备份失败: {0}",
-        "status.backups_hint" => "j/k 或 ↑↓ 上下  Enter 恢复  b 立刻备份  Esc 返回",
         "status.no_restore" => "先选一个备份。",
-        "status.sync_hint" => "e 设置  p 推送  u 拉取  Esc 返回",
         "status.deleted" => "已删除 {0}",
         "status.delete_failed" => "删除失败: {0}",
         "status.added" => "已添加 {0}",
@@ -465,30 +461,26 @@ a                    添加\n\
 e                    编辑\n\
 d                    删除（会再确认）\n\
 b                    立刻备份\n\
-r                    备份列表\n\
-s                    同步\n\
+r 或 s               数据管理（备份与同步）
 g                    设置\n\
 ?                    本帮助\n\
 q                    退出\n\
 Esc                  关掉帮助，或退出"
         }
-        "help.backups" => {
+        "help.data" => {
             "\
-备份\n\n\
+数据管理（备份与同步）\n\
+备份：\n\
 j k 或 ↑ ↓           上下移动\n\
 Enter                恢复（会再确认）\n\
 b                    立刻备份\n\
-Esc                  返回列表\n\
-q                    退出"
-        }
-        "help.sync" => {
-            "\
-同步\n\n\
+同步：\n\
 e                    设置 URL / 用户 / 密码\n\
 p                    推送\n\
 u                    拉取\n\
 Esc                  返回列表\n\
-q                    退出\n\n\
+q                    退出\n\
+\n\
 文件写在内置命名空间 aimux-sync 下（只显示，不能改）。"
         }
         "help.sync_setup" => {

@@ -25,8 +25,7 @@ pub fn text(app: &App) -> String {
     }
     match app.page {
         Page::Providers => t("help.list").into(),
-        Page::Backups => t("help.backups").into(),
-        Page::Sync => t("help.sync").into(),
+        Page::Data => t("help.data").into(),
         Page::Settings => t("help.settings").into(),
     }
 }

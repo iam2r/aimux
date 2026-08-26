@@ -25,8 +25,7 @@ use super::pages::sync::{self, Job, Outcome};
 
 pub enum Page {
     Providers,
-    Backups,
-    Sync,
+    Data,
     Settings,
 }
 
@@ -184,8 +183,7 @@ impl App {
             Overlay::SnippetEditor(_) => t("status.hint_snippet"),
             Overlay::None => match self.page {
                 Page::Providers => t("status.hint_list"),
-                Page::Backups => t("status.backups_hint"),
-                Page::Sync => t("status.sync_hint"),
+                Page::Data => t("status.data_hint"),
                 Page::Settings => t("status.hint_settings"),
             },
         }
@@ -252,8 +250,7 @@ impl App {
         }
         let mode = match self.page {
             Page::Providers => KeyMode::List,
-            Page::Backups => KeyMode::Backups,
-            Page::Sync => KeyMode::Sync,
+            Page::Data => KeyMode::Data,
             Page::Settings => KeyMode::Settings,
         };
         self.handle_action(keymap::map_key(key, mode))
@@ -310,8 +307,7 @@ impl App {
             Action::Edit => self.open_edit(),
             Action::Delete => self.open_delete(),
             Action::Backup => self.create_backup(),
-            Action::OpenBackups => self.open_backups(),
-            Action::OpenSync => self.open_sync(),
+            Action::OpenData => self.open_data(),
             Action::OpenSettings => self.open_settings(),
             Action::ToggleSetting => self.toggle_setting(),
             Action::Back => {
@@ -345,7 +341,7 @@ impl App {
                 self.selected = ((self.selected as isize + delta).rem_euclid(n)) as usize;
                 self.list_state.select(Some(self.selected));
             }
-            Page::Backups => {
+            Page::Data => {
                 let n = self.backups.len() as isize;
                 if n == 0 {
                     return;
@@ -353,7 +349,6 @@ impl App {
                 self.backup_sel = ((self.backup_sel as isize + delta).rem_euclid(n)) as usize;
                 self.backup_state.select(Some(self.backup_sel));
             }
-            Page::Sync => {}
             Page::Settings => {
                 let n = settings_page::row_count() as isize;
                 self.settings_sel = ((self.settings_sel as isize + delta).rem_euclid(n)) as usize;
@@ -584,7 +579,7 @@ impl App {
         match backup::create(&self.paths, None) {
             Ok(stem) => {
                 self.status = tf("status.backed_up", &[&stem]);
-                if matches!(self.page, Page::Backups) {
+                if matches!(self.page, Page::Data) {
                     self.refresh_backups();
                 }
             }
@@ -592,9 +587,10 @@ impl App {
         }
     }
 
-    fn open_backups(&mut self) {
-        self.page = Page::Backups;
+    fn open_data(&mut self) {
+        self.page = Page::Data;
         self.refresh_backups();
+        self.sync_local = cloud::local_sync(&self.paths);
     }
 
     fn refresh_backups(&mut self) {
@@ -617,11 +613,6 @@ impl App {
         self.overlay = Overlay::ConfirmRestore {
             name: entry.name.clone(),
         };
-    }
-
-    fn open_sync(&mut self) {
-        self.page = Page::Sync;
-        self.sync_local = cloud::local_sync(&self.paths);
     }
 
     fn open_sync_setup(&mut self) {
@@ -1100,7 +1091,7 @@ impl App {
                 Ok(sha) => {
                     self.sync_local = cloud::local_sync(&self.paths);
                     self.status = tf("status.pushed", &[&sha]);
-                    if matches!(self.page, Page::Backups) {
+                    if matches!(self.page, Page::Data) {
                         self.refresh_backups();
                     }
                 }
@@ -1343,8 +1334,8 @@ mod tests {
         assert_eq!(app.hint(), t("status.hint_list"));
         assert!(app.status.is_empty());
 
-        app.handle_action(Action::OpenBackups);
-        assert_eq!(app.hint(), t("status.backups_hint"));
+        app.handle_action(Action::OpenData);
+        assert_eq!(app.hint(), t("status.data_hint"));
         assert!(app.status.is_empty());
 
         let backend = TestBackend::new(80, 24);
@@ -1507,6 +1498,25 @@ mod tests {
     }
 
     #[test]
+    fn data_page_draws_backup_list_and_sync_block() {
+        let td = tempfile::tempdir().unwrap();
+        let paths = Paths::for_test(td.path());
+        let mut app = sample(paths.clone());
+        app.store.save(&paths).unwrap();
+        backup::create(&paths, None).unwrap();
+        app.handle_action(Action::OpenData);
+        assert!(matches!(app.page, Page::Data));
+        let mut term = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        term.draw(|f| view::draw(f, &mut app)).unwrap();
+        let text = buffer_text(&term);
+        assert!(text.contains("Data"), "{text}");
+        assert!(text.contains("Backups"), "{text}");
+        assert!(text.contains("Sync"), "{text}");
+        // restore flow still works from the merged page
+        app.handle_key(key(KeyCode::Enter));
+    }
+
+    #[test]
     fn backup_and_restore_pages() {
         let td = tempfile::tempdir().unwrap();
         let paths = Paths::for_test(td.path());
@@ -1514,8 +1524,8 @@ mod tests {
         app.store.save(&paths).unwrap();
         app.handle_action(Action::Backup);
         assert!(app.status.contains("Backed up"), "{}", app.status);
-        app.handle_action(Action::OpenBackups);
-        assert!(matches!(app.page, Page::Backups));
+        app.handle_action(Action::OpenData);
+        assert!(matches!(app.page, Page::Data));
         assert!(!app.backups.is_empty());
         assert!(app.backups.iter().any(|e| e.timestamp));
         backup::create(&paths, Some("named-one")).unwrap();
@@ -1554,8 +1564,8 @@ mod tests {
         let td = tempfile::tempdir().unwrap();
         let paths = Paths::for_test(td.path());
         let mut app = sample(paths);
-        app.handle_action(Action::OpenSync);
-        assert!(matches!(app.page, Page::Sync));
+        app.handle_action(Action::OpenData);
+        assert!(matches!(app.page, Page::Data));
         app.handle_action(Action::ToggleHelp);
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -1608,12 +1618,9 @@ mod tests {
         let mut app = sample(paths);
         let list = crate::tui::help::text(&app);
         assert!(list.contains("add"));
-        app.page = Page::Backups;
-        let b = crate::tui::help::text(&app);
-        assert!(b.contains("restore"));
-        app.page = Page::Sync;
-        let s = crate::tui::help::text(&app);
-        assert!(s.contains("push") || s.contains("aimux-sync"));
+        app.page = Page::Data;
+        let d = crate::tui::help::text(&app);
+        assert!(d.contains("restore") && d.contains("push") || d.contains("aimux-sync"));
         app.page = Page::Settings;
         let set = crate::tui::help::text(&app);
         assert!(set.contains("Language") || set.contains("detection") || set.contains("Space"));
@@ -1627,7 +1634,7 @@ mod tests {
         let td = tempfile::tempdir().unwrap();
         let paths = Paths::for_test(td.path());
         let mut app = sample(paths);
-        app.handle_action(Action::OpenSync);
+        app.handle_action(Action::OpenData);
         app.handle_action(Action::SyncSetup);
         {
             let Overlay::Form(form) = &mut app.overlay else {
@@ -1669,7 +1676,7 @@ mod tests {
         let srv = crate::webdav::mock::MockServer::start();
         let url = srv.collection_url("/dav");
         let mut app = sample(paths.clone());
-        app.handle_action(Action::OpenSync);
+        app.handle_action(Action::OpenData);
         app.handle_action(Action::SyncSetup);
         {
             let Overlay::Form(form) = &mut app.overlay else {

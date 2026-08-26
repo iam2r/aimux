@@ -33,13 +33,14 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             draw_tabs(frame, app, chunks[0], theme);
             draw_list(frame, app, chunks[1], theme);
         }
-        Page::Backups => {
-            draw_title(frame, chunks[0], t("ui.backups"), theme);
-            draw_backups(frame, app, chunks[1], theme);
-        }
-        Page::Sync => {
-            draw_title(frame, chunks[0], t("ui.sync"), theme);
-            draw_sync(frame, app, chunks[1], theme);
+        Page::Data => {
+            draw_title(frame, chunks[0], t("ui.data"), theme);
+            let areas = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Min(5), Constraint::Length(8)])
+                .split(chunks[1]);
+            draw_backups(frame, app, areas[0], theme);
+            draw_sync(frame, app, areas[1], theme);
         }
         Page::Settings => {
             draw_title(frame, chunks[0], t("ui.settings"), theme);
@@ -164,7 +165,7 @@ fn draw_backups(frame: &mut Frame, app: &mut App, area: Rect, theme: Theme) {
         .block(
             Block::bordered()
                 .border_style(theme.accent())
-                .title(Span::styled(t("ui.timestamp_named"), theme.accent())),
+                .title(Span::styled(t("ui.backups"), theme.accent())),
         )
         .highlight_style(theme.selected())
         .highlight_symbol("> ");
@@ -197,7 +198,7 @@ fn draw_sync(frame: &mut Frame, app: &App, area: Rect, theme: Theme) {
             .block(
                 Block::bordered()
                     .border_style(theme.accent())
-                    .title(Span::styled(t("ui.status"), theme.accent())),
+                    .title(Span::styled(t("ui.sync"), theme.accent())),
             ),
         area,
     );
