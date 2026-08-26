@@ -94,6 +94,213 @@ pub fn map_key(key: KeyEvent, mode: KeyMode) -> Action {
     }
 }
 
+/// One row of a page's key vocabulary: what the user sees (`display`), the
+/// i18n key describing it, and — for keys that flow through [`map_key`] —
+/// the action the dispatcher must return. The status-bar hint and the help
+/// sheet are generated from this table, so shown hints cannot drift from
+/// real handlers; `tests::hints_match_dispatcher` locks every check in.
+pub(crate) struct HintRow {
+    pub display: &'static str,
+    pub label: &'static str,
+    /// Optional section header (help sheet groups rows under it).
+    pub group: Option<&'static str>,
+    pub mode: KeyMode,
+    /// (key, expected map_key outcome) pairs verified by tests. Only read in
+    /// test builds; production uses display/label/group for rendering.
+    #[cfg_attr(not(test), expect(dead_code))]
+    pub checks: &'static [(KeyCode, Action)],
+}
+
+const HINTS: &[HintRow] = &[
+    // ---- Providers list -------------------------------------------------
+    HintRow {
+        display: "[ ] / Tab",
+        label: "hint.switch_app",
+        group: None,
+        mode: KeyMode::List,
+        checks: &[
+            (KeyCode::Char(']'), Action::NextApp),
+            (KeyCode::Char('['), Action::PrevApp),
+        ],
+    },
+    HintRow {
+        display: "j/k or ↑↓",
+        label: "hint.move",
+        group: None,
+        mode: KeyMode::List,
+        checks: &[
+            (KeyCode::Char('j'), Action::Down),
+            (KeyCode::Up, Action::Up),
+        ],
+    },
+    HintRow {
+        display: "Enter",
+        label: "hint.use",
+        group: None,
+        mode: KeyMode::List,
+        checks: &[(KeyCode::Enter, Action::Switch)],
+    },
+    HintRow {
+        display: "a",
+        label: "hint.add",
+        group: None,
+        mode: KeyMode::List,
+        checks: &[(KeyCode::Char('a'), Action::Add)],
+    },
+    HintRow {
+        display: "e",
+        label: "hint.edit",
+        group: None,
+        mode: KeyMode::List,
+        checks: &[(KeyCode::Char('e'), Action::Edit)],
+    },
+    HintRow {
+        display: "d",
+        label: "hint.delete",
+        group: None,
+        mode: KeyMode::List,
+        checks: &[(KeyCode::Char('d'), Action::Delete)],
+    },
+    HintRow {
+        display: "r/s",
+        label: "hint.data",
+        group: None,
+        mode: KeyMode::List,
+        checks: &[
+            (KeyCode::Char('r'), Action::OpenData),
+            (KeyCode::Char('s'), Action::OpenData),
+        ],
+    },
+    HintRow {
+        display: "g",
+        label: "hint.settings",
+        group: None,
+        mode: KeyMode::List,
+        checks: &[(KeyCode::Char('g'), Action::OpenSettings)],
+    },
+    HintRow {
+        display: "?",
+        label: "hint.help",
+        group: None,
+        mode: KeyMode::List,
+        checks: &[(KeyCode::Char('?'), Action::ToggleHelp)],
+    },
+    HintRow {
+        display: "q",
+        label: "hint.quit",
+        group: None,
+        mode: KeyMode::List,
+        checks: &[(KeyCode::Char('q'), Action::Quit)],
+    },
+    // ---- Data page ------------------------------------------------------
+    HintRow {
+        display: "j/k or ↑↓",
+        label: "hint.select",
+        group: Some("Backups"),
+        mode: KeyMode::Data,
+        checks: &[(KeyCode::Char('j'), Action::Down)],
+    },
+    HintRow {
+        display: "Enter",
+        label: "hint.restore",
+        group: None,
+        mode: KeyMode::Data,
+        checks: &[(KeyCode::Enter, Action::Restore)],
+    },
+    HintRow {
+        display: "b",
+        label: "hint.snapshot",
+        group: None,
+        mode: KeyMode::Data,
+        checks: &[(KeyCode::Char('b'), Action::Backup)],
+    },
+    HintRow {
+        display: "e",
+        label: "hint.setup",
+        group: Some("Sync"),
+        mode: KeyMode::Data,
+        checks: &[(KeyCode::Char('e'), Action::SyncSetup)],
+    },
+    HintRow {
+        display: "p",
+        label: "hint.push",
+        group: None,
+        mode: KeyMode::Data,
+        checks: &[(KeyCode::Char('p'), Action::SyncPush)],
+    },
+    HintRow {
+        display: "u",
+        label: "hint.pull",
+        group: None,
+        mode: KeyMode::Data,
+        checks: &[(KeyCode::Char('u'), Action::SyncPull)],
+    },
+    HintRow {
+        display: "Esc",
+        label: "hint.back",
+        group: None,
+        mode: KeyMode::Data,
+        checks: &[(KeyCode::Esc, Action::Back)],
+    },
+    HintRow {
+        display: "q",
+        label: "hint.quit",
+        group: None,
+        mode: KeyMode::Data,
+        checks: &[(KeyCode::Char('q'), Action::Quit)],
+    },
+    // ---- Settings page --------------------------------------------------
+    HintRow {
+        display: "j/k or ↑↓",
+        label: "hint.move",
+        group: None,
+        mode: KeyMode::Settings,
+        checks: &[(KeyCode::Char('k'), Action::Up)],
+    },
+    HintRow {
+        display: "Space / Enter",
+        label: "hint.toggle",
+        group: None,
+        mode: KeyMode::Settings,
+        checks: &[
+            (KeyCode::Char(' '), Action::ToggleSetting),
+            (KeyCode::Enter, Action::ToggleSetting),
+        ],
+    },
+    HintRow {
+        display: "Esc",
+        label: "hint.back",
+        group: None,
+        mode: KeyMode::Settings,
+        checks: &[(KeyCode::Esc, Action::Back)],
+    },
+    HintRow {
+        display: "q",
+        label: "hint.quit",
+        group: None,
+        mode: KeyMode::Settings,
+        checks: &[(KeyCode::Char('q'), Action::Quit)],
+    },
+];
+
+/// Hints for one page as (display, translated-label, section-group) rows.
+pub(crate) fn hint_rows(mode: KeyMode) -> Vec<(&'static str, String, Option<&'static str>)> {
+    HINTS
+        .iter()
+        .filter(|h| h.mode == mode)
+        .map(|h| (h.display, crate::i18n::t(h.label).to_string(), h.group))
+        .collect()
+}
+
+/// The single-line status-bar hint for one page.
+pub(crate) fn hint_bar(mode: KeyMode) -> String {
+    hint_rows(mode)
+        .into_iter()
+        .map(|(k, v, _)| format!("{k} {v}"))
+        .collect::<Vec<_>>()
+        .join("  ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,6 +409,32 @@ mod tests {
             map_key(key(KeyCode::Char('l')), KeyMode::List),
             Action::None
         );
+    }
+
+    #[test]
+    fn hints_match_dispatcher() {
+        for h in HINTS {
+            assert!(
+                !h.display.trim().is_empty(),
+                "empty display in {:?}",
+                h.label
+            );
+            assert!(
+                !crate::i18n::t(h.label).is_empty(),
+                "untranslated {}",
+                h.label
+            );
+            assert!(!h.checks.is_empty(), "no checks for {}", h.label);
+            for &(code, expected) in h.checks {
+                assert_eq!(
+                    map_key(key(code), h.mode),
+                    expected,
+                    "{code:?} on {:?} must dispatch to {:?}",
+                    h.mode,
+                    expected
+                );
+            }
+        }
     }
 
     #[test]

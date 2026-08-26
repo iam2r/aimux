@@ -166,14 +166,32 @@ fn en(key: &'static str) -> &'static str {
         "slot.fable" => "Fable",
         "slot.subagent" => "Subagent",
 
-        "status.hint_list" => "[ ] / Tab switch app  j/k or ↑↓ move  a add  e edit  d delete  r/s data  g settings  ?  q",
+        "hint.switch_app" => "switch app",
+        "hint.move" => "move",
+        "hint.select" => "select",
+        "hint.use" => "use",
+        "hint.add" => "add",
+        "hint.edit" => "edit",
+        "hint.delete" => "delete (asks first)",
+        "hint.data" => "data",
+        "hint.settings" => "settings",
+        "hint.help" => "help",
+        "hint.toggle" => "change value",
+        "hint.snapshot" => "snapshot",
+        "hint.setup" => "sync setup",
+        "hint.push" => "push",
+        "hint.pull" => "pull",
+        "hint.restore" => "restore (asks first)",
+        "hint.back" => "back",
+        "hint.quit" => "quit",
+        "help.keys_title" => "Keys",
+        "help.data_footnote" => "Files go under the built-in namespace aimux-sync (shown, not editable).",
+        "help.settings_footnote" => "Auto detection looks for the CLI on PATH, a config folder, or providers already saved in aimux. Manual mode shows or hides each app; at least one stays visible.",
         "status.hint_picker" => "j/k move  PgUp/PgDn page  Space toggle  / filter  ←→ cursor  Enter confirm  Esc cancel",
         "status.hint_catalog" => "j/k row  Tab column  e edit  n new  d delete  * default  Enter save  Esc cancel",
         "status.hint_slots" => "j/k  e edit  Space fetch  a copy to all  Enter save  Esc cancel",
         "status.hint_snippet" => "j/k checkboxes  Space toggle  Tab body  Ctrl+S save  Esc cancel",
         "status.snippet_saved" => "Snippet saved",
-        "status.data_hint" => "j/k select  Enter restore  b snapshot  e setup  p push  u pull  Esc back",
-        "status.hint_settings" => "j/k or ↑↓  Space change  Esc back",
         "status.hint_help" => "? or Esc close",
         "status.hint_syncing" => "Working…  q quit",
         "status.cancelled" => "Cancelled",
@@ -393,9 +411,27 @@ fn zh(key: &'static str) -> Option<&'static str> {
         "slot.fable" => "Fable",
         "slot.subagent" => "子代理",
 
-        "status.hint_list" => {
-            "[ ] / Tab 切换应用  j/k 或 ↑↓ 上下  a 添加  e 编辑  d 删除  r/s 数据管理  g 设置  ?  q"
-        }
+        "hint.switch_app" => "切换应用",
+        "hint.move" => "移动",
+        "hint.select" => "选择",
+        "hint.use" => "启用",
+        "hint.add" => "添加",
+        "hint.edit" => "编辑",
+        "hint.delete" => "删除（会再确认）",
+        "hint.data" => "数据管理",
+        "hint.settings" => "设置",
+        "hint.help" => "帮助",
+        "hint.toggle" => "更改",
+        "hint.snapshot" => "快照",
+        "hint.setup" => "同步设置",
+        "hint.push" => "推送",
+        "hint.pull" => "拉取",
+        "hint.restore" => "恢复（会再确认）",
+        "hint.back" => "返回",
+        "hint.quit" => "退出",
+        "help.keys_title" => "快捷键",
+        "help.data_footnote" => "文件写在内置命名空间 aimux-sync 下（只显示，不能改）。",
+        "help.settings_footnote" => "自动检测会找 PATH 上的 CLI、配置目录，以及 aimux 里已经存过的供应商。手动模式可以逐个显示或隐藏，至少留一个。",
         "status.hint_picker" => {
             "j/k 移动  PgUp/PgDn 翻页  空格 勾选  / 过滤  ←→ 光标  Enter 确认  Esc 取消"
         }
@@ -405,8 +441,6 @@ fn zh(key: &'static str) -> Option<&'static str> {
         "status.hint_slots" => "j/k  e 编辑  空格 拉取  a 同步到全部档位  Enter 保存  Esc 取消",
         "status.hint_snippet" => "j/k 勾选  空格 切换  Tab 正文  Ctrl+S 保存  Esc 取消",
         "status.snippet_saved" => "公共配置已保存",
-        "status.data_hint" => "j/k 选择  Enter 恢复  b 立刻备份  e 设置  p 推送  u 拉取  Esc 返回",
-        "status.hint_settings" => "j/k 或 ↑↓ 上下  Space 更改  Esc 返回",
         "status.hint_help" => "? 或 Esc 关闭",
         "status.hint_syncing" => "处理中…  q 退出",
         "status.cancelled" => "已取消",
@@ -460,37 +494,6 @@ fn zh(key: &'static str) -> Option<&'static str> {
 
         "help.syncing" => "正在同步\n\n等它完成，或按 q 退出 aimux。",
         "help.confirm" => "确认\n\ny            是\nn 或 Esc     否",
-        "help.list" => {
-            "\
-快捷键\n\n\
-[ ] 或 Tab           上一个 / 下一个应用\n\
-j k 或 ↑ ↓           在列表里上下移动\n\
-Enter                选用当前供应商\n\
-a                    添加\n\
-e                    编辑\n\
-d                    删除（会再确认）\n\
-r 或 s               数据管理（备份与同步）
-g                    设置\n\
-?                    本帮助\n\
-q                    退出\n\
-Esc                  关掉帮助，或退出"
-        }
-        "help.data" => {
-            "\
-数据管理（备份与同步）\n\
-备份：\n\
-j k 或 ↑ ↓           上下移动\n\
-Enter                恢复（会再确认）\n\
-b                    立刻备份\n\
-同步：\n\
-e                    设置 URL / 用户 / 密码\n\
-p                    推送\n\
-u                    拉取\n\
-Esc                  返回列表\n\
-q                    退出\n\
-\n\
-文件写在内置命名空间 aimux-sync 下（只显示，不能改）。"
-        }
         "help.sync_setup" => {
             "\
 同步设置\n\n\
@@ -499,17 +502,6 @@ Enter                提交（在此 URL 下创建 aimux-sync 目录）\n\
 Esc                  取消\n\n\
 密钥留空 = 保留原密码。\n\
 命名空间 aimux-sync 是内置的，不能改。"
-        }
-        "help.settings" => {
-            "\
-设置\n\n\
-j k 或 ↑ ↓           上下移动\n\
-Space 或 Enter       更改当前项\n\
-Esc                  返回列表\n\
-q                    退出\n\n\
-自动检测会找 PATH 上的 CLI、配置目录，\n\
-以及 aimux 里已经存过的供应商。\n\
-手动模式可以逐个显示或隐藏，至少留一个。"
         }
         "help.form" => {
             "\

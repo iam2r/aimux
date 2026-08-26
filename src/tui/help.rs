@@ -24,10 +24,38 @@ pub fn text(app: &App) -> String {
         _ => {}
     }
     match app.page {
-        Page::Providers => t("help.list").into(),
-        Page::Data => t("help.data").into(),
-        Page::Settings => t("help.settings").into(),
+        Page::Providers => page_sheet(super::keymap::KeyMode::List, None),
+        Page::Data => page_sheet(super::keymap::KeyMode::Data, Some(t("help.data_footnote"))),
+        Page::Settings => page_sheet(
+            super::keymap::KeyMode::Settings,
+            Some(t("help.settings_footnote")),
+        ),
     }
+}
+
+/// Build a page's key sheet from the shared hint table (single source of
+/// truth with the status bar and the dispatcher). Rows may declare a group;
+/// a header line is emitted when the group changes.
+fn page_sheet(mode: super::keymap::KeyMode, footnote: Option<&str>) -> String {
+    let mut out = format!("{}\n\n", t("help.keys_title"));
+    let mut last_group: Option<Option<&str>> = None;
+    for (display, label, group) in super::keymap::hint_rows(mode) {
+        if let Some(group) = group.filter(|g| last_group.is_none_or(|prev| prev != Some(g))) {
+            out.push_str(group);
+            out.push_str(":\n");
+        }
+        last_group = Some(group);
+        let pad = " ".repeat(21usize.saturating_sub(display.chars().count()));
+        out.push_str(&format!("{display}{pad}{label}\n"));
+    }
+    if let Some(foot) = footnote {
+        if !foot.is_empty() {
+            out.push('\n');
+            out.push_str(foot);
+            out.push('\n');
+        }
+    }
+    out
 }
 
 fn form_help(kind: FormKind) -> String {
@@ -41,5 +69,38 @@ fn form_help(kind: FormKind) -> String {
             };
             tf("help.form", &[keep])
         }
+    }
+}
+
+#[cfg(test)]
+mod sheet_tests {
+    use super::*;
+
+    #[test]
+    fn sheets_render_with_groups() {
+        let data = page_sheet(
+            super::super::keymap::KeyMode::Data,
+            Some(t("help.data_footnote")),
+        );
+        assert!(data.starts_with("Keys\n\n"), "{data}"); // default test lang is en
+        assert!(data.contains("Backups:\n"), "{data}");
+        assert!(data.contains("Sync:\n"), "{data}");
+        assert!(data.contains("b                    snapshot"), "{data}");
+        assert!(data.contains("aimux-sync"), "{data}");
+        // group header appears once
+        assert_eq!(data.matches("Backups:").count(), 1);
+    }
+
+    #[test]
+    fn list_sheet_has_no_groups() {
+        let list = page_sheet(super::super::keymap::KeyMode::List, None);
+        assert!(list.starts_with("Keys"), "{list}");
+        // the only colon-free sheet: no group headers on Providers
+        assert!(
+            !list.lines().any(|l| l.ends_with(':')),
+            "unexpected group in {list}"
+        );
+        assert!(list.contains("[ ] / Tab"), "{list}");
+        assert!(list.contains("q                    quit"), "{list}");
     }
 }

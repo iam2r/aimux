@@ -169,23 +169,25 @@ impl App {
     }
 
     /// Key hints for the current page/overlay. Recomputed every frame; not stored.
-    pub fn hint(&self) -> &'static str {
+    pub fn hint(&self) -> String {
         if self.help {
-            return t("status.hint_help");
+            return t("status.hint_help").to_string();
         }
         match &self.overlay {
-            Overlay::Form(_) => t("ui.form_hint"),
-            Overlay::ConfirmDelete { .. } | Overlay::ConfirmRestore { .. } => t("ui.confirm_hint"),
-            Overlay::Syncing | Overlay::FetchingModels => t("status.hint_syncing"),
-            Overlay::ModelPicker(_) => t("status.hint_picker"),
-            Overlay::CatalogEditor { .. } => t("status.hint_catalog"),
-            Overlay::SlotEditor { .. } => t("status.hint_slots"),
-            Overlay::SnippetEditor(_) => t("status.hint_snippet"),
-            Overlay::None => match self.page {
-                Page::Providers => t("status.hint_list"),
-                Page::Data => t("status.data_hint"),
-                Page::Settings => t("status.hint_settings"),
-            },
+            Overlay::Form(_) => t("ui.form_hint").into(),
+            Overlay::ConfirmDelete { .. } | Overlay::ConfirmRestore { .. } => {
+                t("ui.confirm_hint").into()
+            }
+            Overlay::Syncing | Overlay::FetchingModels => t("status.hint_syncing").into(),
+            Overlay::ModelPicker(_) => t("status.hint_picker").into(),
+            Overlay::CatalogEditor { .. } => t("status.hint_catalog").into(),
+            Overlay::SlotEditor { .. } => t("status.hint_slots").into(),
+            Overlay::SnippetEditor(_) => t("status.hint_snippet").into(),
+            Overlay::None => super::keymap::hint_bar(match self.page {
+                Page::Providers => KeyMode::List,
+                Page::Data => KeyMode::Data,
+                Page::Settings => KeyMode::Settings,
+            }),
         }
     }
 
@@ -1322,7 +1324,7 @@ mod tests {
         let td = tempfile::tempdir().unwrap();
         let paths = Paths::for_test(td.path());
         let mut app = sample(paths);
-        assert_eq!(app.hint(), t("status.hint_list"));
+        assert_eq!(app.hint(), crate::tui::keymap::hint_bar(KeyMode::List));
         assert!(app.status.is_empty());
 
         app.handle_action(Action::Edit);
@@ -1331,17 +1333,17 @@ mod tests {
 
         app.handle_key(key(KeyCode::Esc));
         assert!(matches!(app.overlay, Overlay::None));
-        assert_eq!(app.hint(), t("status.hint_list"));
+        assert_eq!(app.hint(), crate::tui::keymap::hint_bar(KeyMode::List));
         assert!(app.status.is_empty());
 
         app.handle_action(Action::Delete);
         assert_eq!(app.hint(), t("ui.confirm_hint"));
         app.handle_confirm_key(key(KeyCode::Esc));
-        assert_eq!(app.hint(), t("status.hint_list"));
+        assert_eq!(app.hint(), crate::tui::keymap::hint_bar(KeyMode::List));
         assert!(app.status.is_empty());
 
         app.handle_action(Action::OpenData);
-        assert_eq!(app.hint(), t("status.data_hint"));
+        assert_eq!(app.hint(), crate::tui::keymap::hint_bar(KeyMode::Data));
         assert!(app.status.is_empty());
 
         let backend = TestBackend::new(80, 24);
