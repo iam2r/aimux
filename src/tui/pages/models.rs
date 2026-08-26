@@ -722,7 +722,14 @@ mod tests {
         assert!(p.visible().is_empty());
         p.handle_key(key(KeyCode::Backspace));
         assert_eq!(p.filter, "abc");
-        assert_eq!(edit::with_caret(&p.filter, p.filter_cursor, true), "a_bc");
+        assert_eq!(
+            edit::caret_spans(&p.filter, p.filter_cursor, Default::default())
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<Vec<_>>()
+                .join(""),
+            "abc" // underline caret adds no character
+        );
     }
 
     #[test]

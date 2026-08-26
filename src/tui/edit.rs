@@ -1,6 +1,8 @@
 //! Character-index caret for TUI text fields.
 
 use crossterm::event::{KeyCode, KeyEvent};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::Span;
 
 pub fn len(s: &str) -> usize {
     s.chars().count()
@@ -85,23 +87,32 @@ pub fn key(s: &mut String, cursor: &mut usize, k: KeyEvent) -> bool {
     }
 }
 
-/// Insert a `_` caret at the character index.
-pub fn with_caret(s: &str, cursor: usize, show: bool) -> String {
-    if !show {
-        return s.to_string();
+/// Split text at the cursor so the character under it can carry an
+/// underline style — the caret marks a position instead of occupying one.
+/// Past-the-end cursors render as an underlined space (an insertion point,
+/// not a logical character).
+pub(crate) fn caret_spans(text: &str, cursor: usize, style: Style) -> Vec<Span<'static>> {
+    let c = clamp(text, cursor);
+    let chars: Vec<char> = text.chars().collect();
+    let mut spans = Vec::with_capacity(3);
+    if c > 0 {
+        let pre: String = chars[..c].iter().collect();
+        spans.push(Span::styled(pre, style));
     }
-    let c = clamp(s, cursor);
-    let mut out = String::with_capacity(s.len() + 1);
-    for (i, ch) in s.chars().enumerate() {
-        if i == c {
-            out.push('_');
+    match chars.get(c) {
+        Some(&ch) => {
+            spans.push(Span::styled(
+                ch.to_string(),
+                style.add_modifier(Modifier::UNDERLINED),
+            ));
+            if c + 1 < chars.len() {
+                let post: String = chars[c + 1..].iter().collect();
+                spans.push(Span::styled(post, style));
+            }
         }
-        out.push(ch);
+        None => spans.push(Span::styled(" ", style.add_modifier(Modifier::UNDERLINED))),
     }
-    if c == len(s) {
-        out.push('_');
-    }
-    out
+    spans
 }
 
 #[cfg(test)]
@@ -125,8 +136,23 @@ mod tests {
         home(&mut c);
         delete(&mut s, &mut c);
         assert_eq!(s, "ab");
-        assert_eq!(with_caret("ab", 1, true), "a_b");
-        assert_eq!(with_caret("ab", 2, true), "ab_");
+        // underline caret marks a position without adding characters
+        assert_eq!(
+            caret_spans("ab", 1, Style::default())
+                .iter()
+                .map(|sp| sp.content.as_ref())
+                .collect::<Vec<_>>()
+                .join(""),
+            "ab"
+        );
+        // end-of-text cursor renders the insertion point as one underlined space
+        let end_spans = caret_spans("ab", 2, Style::default());
+        assert_eq!(end_spans.len(), 2);
+        assert_eq!(end_spans[1].content, " ");
+        assert_eq!(
+            end_spans[1].style.add_modifier,
+            ratatui::style::Modifier::UNDERLINED
+        );
     }
 
     #[test]

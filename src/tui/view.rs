@@ -4,6 +4,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, List, ListItem, Paragraph, Tabs, Wrap};
 use ratatui::Frame;
 
+use crate::adapter::FieldKind;
+
 use crate::i18n::{t, tf};
 use crate::mask;
 
@@ -261,17 +263,29 @@ fn draw_form(frame: &mut Frame, form: &form::Form, area: Rect, theme: Theme) {
             " "
         };
         let req = if f.required { "*" } else { " " };
-        let text = format!(
-            "{mark}{req}{}: {}",
-            crate::i18n::t(f.label),
-            form::display_value(f, i == form.focus)
-        );
-        let style = if f.readonly {
-            theme.fg(theme.dim)
-        } else {
-            theme.fg(theme.fg)
-        };
-        lines.push(Line::from(Span::styled(text, style)));
+        let focused = i == form.focus;
+        let mut spans = vec![Span::styled(
+            format!("{mark}{req}{}: ", crate::i18n::t(f.label)),
+            if f.readonly {
+                theme.fg(theme.dim)
+            } else {
+                theme.fg(theme.fg)
+            },
+        )];
+        spans.extend(form::value_spans(
+            f,
+            focused,
+            if focused && !matches!(f.kind, FieldKind::Select(_)) {
+                theme.fg(theme.fg)
+            } else if focused {
+                theme.accent()
+            } else if f.readonly {
+                theme.fg(theme.dim)
+            } else {
+                theme.fg(theme.fg)
+            },
+        ));
+        lines.push(Line::from(spans));
     }
     if let Some(err) = &form.error {
         lines.push(Line::from(""));
@@ -337,10 +351,17 @@ fn draw_picker(frame: &mut Frame, picker: &mut ModelPicker, area: Rect, theme: T
     let end = (start + picker.page_rows).min(vis.len());
     let mut lines: Vec<Line> = Vec::new();
     if picker.filtering || !picker.filter.is_empty() {
-        lines.push(Line::from(format!(
-            "/ {}",
-            edit::with_caret(&picker.filter, picker.filter_cursor, picker.filtering)
-        )));
+        let mut spans = vec![Span::styled("/ ", theme.fg(theme.fg))];
+        if picker.filtering {
+            spans.extend(edit::caret_spans(
+                &picker.filter,
+                picker.filter_cursor,
+                theme.fg(theme.fg),
+            ));
+        } else {
+            spans.push(Span::styled(picker.filter.clone(), theme.fg(theme.fg)));
+        }
+        lines.push(Line::from(spans));
     }
     for &idx in &vis[start..end] {
         let cur = if idx == picker.cursor { ">" } else { " " };
@@ -386,33 +407,40 @@ fn draw_catalog(frame: &mut Frame, editor: &CatalogEditor, area: Rect, theme: Th
     for (i, row) in editor.rows.iter().enumerate() {
         let star = if i == editor.default_idx { "*" } else { " " };
         let cur = if i == editor.row { ">" } else { " " };
-        let mut line = format!("{cur}{star}");
+        let mut spans = vec![Span::styled(format!("{cur}{star}"), theme.fg(theme.fg))];
+        let cell_style = theme.fg(theme.fg);
         for (c, field) in editor.fields.iter().enumerate() {
-            let raw = if editor.editing && i == editor.row && c == editor.col {
-                edit::with_caret(&editor.buf, editor.buf_cursor, true)
-            } else {
-                match field {
-                    crate::adapter::models::CatalogField::Id => row.id.clone(),
-                    crate::adapter::models::CatalogField::Label => {
-                        row.label.clone().unwrap_or_default()
-                    }
-                    crate::adapter::models::CatalogField::ContextWindow => row
-                        .context_window
-                        .map(|n| n.to_string())
-                        .unwrap_or_default(),
-                    crate::adapter::models::CatalogField::MaxTokens => {
-                        row.max_tokens.map(|n| n.to_string()).unwrap_or_default()
-                    }
+            let editing_cell = editor.editing && i == editor.row && c == editor.col;
+            let raw: String = match field {
+                crate::adapter::models::CatalogField::Id => row.id.clone(),
+                crate::adapter::models::CatalogField::Label => {
+                    row.label.clone().unwrap_or_default()
+                }
+                crate::adapter::models::CatalogField::ContextWindow => row
+                    .context_window
+                    .map(|n| n.to_string())
+                    .unwrap_or_default(),
+                crate::adapter::models::CatalogField::MaxTokens => {
+                    row.max_tokens.map(|n| n.to_string()).unwrap_or_default()
                 }
             };
-            let cell = if i == editor.row && c == editor.col && !editor.editing {
-                format!("[{:<14}]", raw)
+            if editing_cell {
+                spans.push(Span::styled("[", cell_style));
+                let caret = edit::caret_spans(&editor.buf, editor.buf_cursor, cell_style);
+                let shown: usize = caret.iter().map(|s| s.content.chars().count()).sum();
+                spans.extend(caret);
+                // pad the editable cell to its column width
+                if shown < 15 {
+                    spans.push(Span::styled(" ".repeat(15 - shown), cell_style));
+                }
+                spans.push(Span::styled("]", cell_style));
+            } else if i == editor.row && c == editor.col {
+                spans.push(Span::styled(format!("[{raw:<14}]"), cell_style));
             } else {
-                format!("{raw:<16}")
-            };
-            line.push_str(&cell);
+                spans.push(Span::styled(format!("{raw:<16}"), cell_style));
+            }
         }
-        lines.push(Line::from(line));
+        lines.push(Line::from(spans));
     }
     popup_lines(frame, area, t("ui.catalog"), lines, theme, 18);
 }
@@ -431,12 +459,21 @@ fn draw_slots(frame: &mut Frame, editor: &SlotEditor, area: Rect, theme: Theme) 
         } else {
             ("", "")
         };
-        let shown = if editor.editing && i == editor.row {
-            edit::with_caret(&editor.buf, editor.buf_cursor, true)
+        let editing_row = editor.editing && i == editor.row;
+        let mut line_spans = vec![Span::styled(
+            format!("{cur}{label:<12} "),
+            theme.fg(theme.fg),
+        )];
+        if editing_row {
+            line_spans.extend(edit::caret_spans(
+                &editor.buf,
+                editor.buf_cursor,
+                theme.fg(theme.fg),
+            ));
         } else {
-            value.to_string()
-        };
-        lines.push(Line::from(format!("{cur}{label:<12} {shown}")));
+            line_spans.push(Span::styled(value.to_string(), theme.fg(theme.fg)));
+        }
+        lines.push(Line::from(line_spans));
     }
     popup_lines(frame, area, t("ui.slots"), lines, theme, 14);
 }
@@ -473,9 +510,27 @@ fn draw_snippet(
         format!("{json_cur}{}", t(page.body_label())),
         theme.fg(theme.dim),
     )));
-    let body = edit::with_caret(&page.text, page.text_cursor, page.json_focused());
-    for line in body.lines() {
-        lines.push(Line::from(line.to_string()));
+    let body_style = theme.fg(theme.fg);
+    if page.json_focused() {
+        // Locate the cursor's line; only that line carries the caret spans,
+        // so the underline marks a position instead of occupying a character.
+        let c = crate::tui::edit::clamp(&page.text, page.text_cursor);
+        let mut consumed = 0usize;
+        let mut caret_done = false;
+        for seg in page.text.split('\n') {
+            let seg_len = seg.chars().count();
+            if !caret_done && c <= consumed + seg_len {
+                lines.push(Line::from(edit::caret_spans(seg, c - consumed, body_style)));
+                caret_done = true;
+            } else {
+                lines.push(Line::from(Span::styled(seg.to_string(), body_style)));
+            }
+            consumed += seg_len + 1; // + newline
+        }
+    } else {
+        for line in page.text.lines() {
+            lines.push(Line::from(Span::styled(line.to_string(), body_style)));
+        }
     }
     if let Some(err) = &page.error {
         lines.push(Line::from(""));
@@ -560,7 +615,8 @@ mod tests {
             .map(|y| row(&term, y))
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(joined.contains("/ m_0")); // caret sits mid-filter
+        assert!(joined.contains("/ m0")); // filter text intact; caret is an underline style now
+        assert!(!joined.contains('_')); // no inserted caret glyph anywhere
         assert!(joined.contains("[ ] m00"));
         assert!(!joined.contains("m05")); // second page stays hidden
         assert!(joined.contains("1/10")); // title position

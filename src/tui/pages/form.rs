@@ -1,5 +1,7 @@
 use anyhow::{bail, Result};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::style::Style;
+use ratatui::text::Span;
 
 use crate::adapter::{self, FieldKind, FieldSpec, FieldStorage};
 use crate::i18n::{t, tf};
@@ -794,8 +796,8 @@ fn field_by_key(fields: &[InputField], key: &str) -> String {
         .unwrap_or_default()
 }
 
-pub fn display_value(f: &InputField, focused: bool) -> String {
-    let raw = if matches!(f.kind, FieldKind::Secret) {
+fn masked_value(f: &InputField) -> String {
+    if matches!(f.kind, FieldKind::Secret) {
         if f.secret_keep {
             t("ui.keep_previous").to_string()
         } else {
@@ -803,16 +805,23 @@ pub fn display_value(f: &InputField, focused: bool) -> String {
         }
     } else {
         f.value.clone()
-    };
-    if focused && !f.readonly {
-        let caret = if matches!(f.kind, FieldKind::Secret) && f.secret_keep {
-            raw.chars().count()
-        } else {
-            f.cursor
-        };
-        crate::tui::edit::with_caret(&raw, caret, true)
+    }
+}
+
+/// Focused field rendering: free-text fields carry an underline caret that
+/// marks a position without occupying a character; cycle fields (yes/no),
+/// readonly rows, and kept secrets are not cursor-addressable and render as
+/// plain text.
+pub fn value_spans(f: &InputField, focused: bool, style: Style) -> Vec<Span<'static>> {
+    let raw = masked_value(f);
+    let caret = focused
+        && !f.readonly
+        && !matches!(f.kind, FieldKind::Select(_))
+        && !(matches!(f.kind, FieldKind::Secret) && f.secret_keep);
+    if caret {
+        crate::tui::edit::caret_spans(&raw, f.cursor, style)
     } else {
-        raw
+        vec![Span::styled(raw, style)]
     }
 }
 
@@ -1055,10 +1064,39 @@ mod tests {
             saved_secret: None,
             readonly: false,
         };
-        assert_eq!(display_value(&f, false), "*********");
-        assert!(!display_value(&f, false).contains("sk-"));
+        assert_eq!(masked_value(&f), "*********");
+        assert!(!masked_value(&f).contains("sk-"));
         f.secret_keep = true;
         f.value.clear();
-        assert!(display_value(&f, false).contains("keep current"));
+        assert!(masked_value(&f).contains("keep current"));
+
+        // Cycle fields (yes/no) and kept secrets never render a caret.
+        let mut sel = InputField {
+            key: "apply_snippet",
+            label: "Apply snippet",
+            kind: FieldKind::Select(&["no", "yes"]),
+            required: false,
+            storage: None,
+            value: "yes".into(),
+            cursor: 0,
+            secret_keep: false,
+            saved_secret: None,
+            readonly: false,
+        };
+        let spans = value_spans(&sel, true, Style::default());
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].content, "yes");
+        // Free-text fields render an underline caret that adds no character.
+        sel.kind = FieldKind::Text;
+        sel.cursor = 0;
+        let spans = value_spans(&sel, false, Style::default());
+        assert_eq!(spans.len(), 1);
+        let spans = value_spans(&sel, true, Style::default());
+        let shown: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+        assert_eq!(shown, 3); // "yes" — caret underlines 'y', adds nothing
+        sel.cursor = sel.value.chars().count();
+        let end_spans = value_spans(&sel, true, Style::default());
+        let shown: usize = end_spans.iter().map(|s| s.content.chars().count()).sum();
+        assert_eq!(shown, 4); // + one underlined insertion-point space
     }
 }
