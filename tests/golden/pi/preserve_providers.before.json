@@ -1,0 +1,35 @@
+{
+  "providers": {
+    "ollama": {
+      "baseUrl": "http://localhost:11434",
+      "api": "openai-completions",
+      "models": [
+        {
+          "id": "llama3"
+        }
+      ]
+    },
+    "PackyCode": {
+      "baseUrl": "https://old.example.com/v1",
+      "api": "openai-completions",
+      "apiKey": "old-key",
+      "compat": {
+        "supportsImages": true
+      },
+      "headers": {
+        "X-Custom": "keep"
+      },
+      "models": [
+        {
+          "id": "claude-sonnet-4-5",
+          "name": "Sonnet"
+        },
+        {
+          "id": "keep-me",
+          "name": "Keep"
+        }
+      ]
+    }
+  },
+  "unrelated": true
+}

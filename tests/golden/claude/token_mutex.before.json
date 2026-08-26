@@ -1,0 +1,6 @@
+{
+  "env": {
+    "ANTHROPIC_API_KEY": "old-api-key",
+    "ANTHROPIC_BASE_URL": "https://old.example.com"
+  }
+}

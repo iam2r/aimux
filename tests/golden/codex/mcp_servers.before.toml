@@ -1,0 +1,13 @@
+model = "gpt-4"
+model_provider = "openai"
+
+# keep this comment
+[mcp_servers.docs]
+command = "uvx"
+args = ["mcp-server"]
+
+# another comment
+[model_providers.openai]
+name = "OpenAI"
+base_url = "https://api.openai.com/v1"
+wire_api = "responses"
