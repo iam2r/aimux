@@ -9,6 +9,7 @@ mod mask;
 mod name;
 mod paths;
 mod settings;
+mod speedtest;
 mod status;
 mod store;
 mod switch;
@@ -68,6 +69,11 @@ enum Commands {
         /// JSON to stdout
         #[arg(long)]
         json: bool,
+    },
+    /// Test connectivity and latency to a provider's base_url
+    Test {
+        /// Provider display name (same resolution as `use`)
+        provider: String,
     },
     /// Switch to a provider
     /// Switch to a provider (by display name)
@@ -257,6 +263,7 @@ fn run_command(cmd: Commands) -> Result<()> {
         Commands::List { app, json } => cmd_list(app, json),
         Commands::Current { app, json } => cmd_current(app, json),
         Commands::Status { app, json } => cmd_status(app, json),
+        Commands::Test { provider } => cmd_test(&provider),
         Commands::Use { provider, app } => cmd_use(provider, app),
         Commands::Add {
             app,
@@ -414,6 +421,13 @@ fn cmd_current(app: Option<AppId>, json: bool) -> Result<()> {
     print_current(&store, app, json, mask::show_secrets())
 }
 
+fn cmd_test(provider: &str) -> Result<()> {
+    let (_paths, store) = load_store()?;
+    let result = speedtest::run(&store, provider)?;
+    print!("{}", speedtest::render_result(&result));
+    Ok(())
+}
+
 fn cmd_status(app: Option<AppId>, json: bool) -> Result<()> {
     require_adapter(app)?;
     let (paths, store) = load_store()?;
@@ -549,8 +563,15 @@ fn cmd_use(id: String, app: Option<AppId>) -> Result<()> {
         adapter::get(app)?;
     }
     let (paths, mut store) = load_store()?;
+    // Resolve up front so we know which app was affected even when the user
+    // omitted --app; the hint below is app-specific.
+    let target_app = switch::resolve(&store, &id, app)?.app;
     let switched = switch::use_provider(&paths, &mut store, &id, app)?;
     println!("switched {switched}");
+    println!(
+        "{}",
+        crate::i18n::tf("status.restart_long", &[target_app.to_string().as_str()])
+    );
     Ok(())
 }
 

@@ -518,7 +518,13 @@ impl App {
                 let name = adapter::get(app).map(|a| a.display_name()).unwrap_or("?");
                 tf("status.switched_skip", &[&switched, name])
             }
-            ApplyOutcome::Applied { .. } => tf("status.switched", &[&switched]),
+            ApplyOutcome::Applied { .. } => {
+                format!(
+                    "{} \u{b7} {}",
+                    tf("status.switched", &[&switched]),
+                    t("status.restart_short")
+                )
+            }
         };
         self.focus_current();
         Ok(())
@@ -1514,6 +1520,30 @@ mod tests {
         assert!(text.contains("Sync"), "{text}");
         // restore flow still works from the merged page
         app.handle_key(key(KeyCode::Enter));
+    }
+
+    #[test]
+    fn applied_switch_appends_restart_hint() {
+        let td = tempfile::tempdir().unwrap();
+        let paths = Paths::for_test(td.path());
+        let mut app = sample(paths.clone());
+        app.store.save(&paths).unwrap();
+        app.selected = 0;
+        let was_official = {
+            let id = app.current_id().unwrap();
+            app.store.providers.get(id).map(|p| p.official) == Some(true)
+        };
+        // pick the non-current row so the switch actually writes live config
+        app.selected = 1;
+        if was_official {
+            app.selected = 0;
+        }
+        app.handle_action(Action::Switch);
+        assert!(
+            app.status.contains("restart to apply") || app.status.contains("config folder"),
+            "{}",
+            app.status
+        );
     }
 
     #[test]
