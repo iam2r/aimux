@@ -67,7 +67,7 @@ pub fn map_key(key: KeyEvent, mode: KeyMode) -> Action {
             _ => Action::None,
         },
         KeyCode::Char('d') | KeyCode::Char('D') if mode == KeyMode::List => Action::Delete,
-        KeyCode::Char('b') | KeyCode::Char('B') => Action::Backup,
+        KeyCode::Char('b') | KeyCode::Char('B') if mode == KeyMode::Data => Action::Backup,
         KeyCode::Char('r') | KeyCode::Char('R') => Action::OpenData,
         KeyCode::Char('s') | KeyCode::Char('S')
             if mode != KeyMode::Data && mode != KeyMode::Settings =>
@@ -171,7 +171,7 @@ mod tests {
         );
         assert_eq!(
             map_key(key(KeyCode::Char('b')), KeyMode::List),
-            Action::Backup
+            Action::None
         );
         assert_eq!(
             map_key(key(KeyCode::Char('r')), KeyMode::List),

@@ -1522,10 +1522,11 @@ mod tests {
         let paths = Paths::for_test(td.path());
         let mut app = sample(paths.clone());
         app.store.save(&paths).unwrap();
-        app.handle_action(Action::Backup);
-        assert!(app.status.contains("Backed up"), "{}", app.status);
+        // b snapshots from within the Data page (no longer a global key)
         app.handle_action(Action::OpenData);
         assert!(matches!(app.page, Page::Data));
+        app.handle_action(Action::Backup);
+        assert!(app.status.contains("Backed up"), "{}", app.status);
         assert!(!app.backups.is_empty());
         assert!(app.backups.iter().any(|e| e.timestamp));
         backup::create(&paths, Some("named-one")).unwrap();

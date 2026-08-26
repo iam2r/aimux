@@ -166,7 +166,7 @@ fn en(key: &'static str) -> &'static str {
         "slot.fable" => "Fable",
         "slot.subagent" => "Subagent",
 
-        "status.hint_list" => "[ ] / Tab switch app  j/k or ↑↓ move  a add  e edit  d delete  b backup  r/s data  g settings  ?  q",
+        "status.hint_list" => "[ ] / Tab switch app  j/k or ↑↓ move  a add  e edit  d delete  r/s data  g settings  ?  q",
         "status.hint_picker" => "j/k move  PgUp/PgDn page  Space toggle  / filter  ←→ cursor  Enter confirm  Esc cancel",
         "status.hint_catalog" => "j/k row  Tab column  e edit  n new  d delete  * default  Enter save  Esc cancel",
         "status.hint_slots" => "j/k  e edit  Space fetch  a copy to all  Enter save  Esc cancel",
@@ -235,7 +235,6 @@ Enter                use this provider\n\
 a                    add\n\
 e                    edit\n\
 d                    delete (asks first)\n\
-b                    snapshot now\n\
 r or s               data (backups & sync)\n\
 g                    settings\n\
 ?                    this help\n\
@@ -392,9 +391,15 @@ fn zh(key: &'static str) -> Option<&'static str> {
         "slot.fable" => "Fable",
         "slot.subagent" => "子代理",
 
-        "status.hint_list" => "[ ] / Tab 切换应用  j/k 或 ↑↓ 上下  a 添加  e 编辑  d 删除  b 备份  r/s 数据管理  g 设置  ?  q",
-        "status.hint_picker" => "j/k 移动  PgUp/PgDn 翻页  空格 勾选  / 过滤  ←→ 光标  Enter 确认  Esc 取消",
-        "status.hint_catalog" => "j/k 行  Tab 列  e 编辑  n 新增  d 删除  * 默认  Enter 保存  Esc 取消",
+        "status.hint_list" => {
+            "[ ] / Tab 切换应用  j/k 或 ↑↓ 上下  a 添加  e 编辑  d 删除  r/s 数据管理  g 设置  ?  q"
+        }
+        "status.hint_picker" => {
+            "j/k 移动  PgUp/PgDn 翻页  空格 勾选  / 过滤  ←→ 光标  Enter 确认  Esc 取消"
+        }
+        "status.hint_catalog" => {
+            "j/k 行  Tab 列  e 编辑  n 新增  d 删除  * 默认  Enter 保存  Esc 取消"
+        }
         "status.hint_slots" => "j/k  e 编辑  空格 拉取  a 同步到全部档位  Enter 保存  Esc 取消",
         "status.hint_snippet" => "j/k 勾选  空格 切换  Tab 正文  Ctrl+S 保存  Esc 取消",
         "status.snippet_saved" => "公共配置已保存",
@@ -460,7 +465,6 @@ Enter                选用当前供应商\n\
 a                    添加\n\
 e                    编辑\n\
 d                    删除（会再确认）\n\
-b                    立刻备份\n\
 r 或 s               数据管理（备份与同步）
 g                    设置\n\
 ?                    本帮助\n\
@@ -492,7 +496,8 @@ Esc                  取消\n\n\
 密钥留空 = 保留原密码。\n\
 命名空间 aimux-sync 是内置的，不能改。"
         }
-        "help.settings" => "\
+        "help.settings" => {
+            "\
 设置\n\n\
 j k 或 ↑ ↓           上下移动\n\
 Space 或 Enter       更改当前项\n\
@@ -500,7 +505,8 @@ Esc                  返回列表\n\
 q                    退出\n\n\
 自动检测会找 PATH 上的 CLI、配置目录，\n\
 以及 aimux 里已经存过的供应商。\n\
-手动模式可以逐个显示或隐藏，至少留一个。",
+手动模式可以逐个显示或隐藏，至少留一个。"
+        }
         "help.form" => {
             "\
 表单\n\n\
@@ -513,15 +519,18 @@ Esc                  取消\n\n\
 必填模型不能为空。"
         }
         "help.form_keep" => "密钥留空会保留原来的值。\n",
-        "help.picker" => "\
+        "help.picker" => {
+            "\
 模型列表\n\n\
 j k 或 ↑ ↓           移动\n\
 PgUp PgDn            翻页（不循环）\n\
 空格                 勾选（目录）\n\
 /                    过滤（←→ Home End 编辑）\n\
 Enter                确认\n\
-Esc                  取消",
-        "help.catalog" => "\
+Esc                  取消"
+        }
+        "help.catalog" => {
+            "\
 模型目录\n\n\
 j k                  行\n\
 Tab                  列\n\
@@ -530,23 +539,28 @@ n                    新增行\n\
 d                    删除行\n\
 *                    标为默认\n\
 Enter                保存\n\
-Esc                  取消",
-        "help.slots" => "\
+Esc                  取消"
+        }
+        "help.slots" => {
+            "\
 模型档位\n\n\
 j k                  移动\n\
 e                    编辑\n\
 空格                 拉取模型\n\
 a                    把当前 id 复制到全部档位\n\
 Enter                保存\n\
-Esc                  取消",
-        "help.snippet" => "\
+Esc                  取消"
+        }
+        "help.snippet" => {
+            "\
 公共配置片段\n\n\
 上面的勾选是内置快捷项，会写进下面的正文。\n\
 j k                  在勾选项间移动\n\
 空格                 开关内置项\n\
 Tab                  编辑正文（JSON，Codex 为 TOML）\n\
 Ctrl+S               保存\n\
-Esc                  取消",
+Esc                  取消"
+        }
         _ => return None,
     })
 }
