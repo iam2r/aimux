@@ -117,6 +117,43 @@ impl AgentAdapter for CodexAdapter {
         Ok(())
     }
 
+    fn inspect(&self, paths: &Paths) -> Result<Option<super::LiveFinger>> {
+        use super::LiveFinger;
+        if !self.is_initialized(paths) {
+            return Ok(None);
+        }
+        let doc = read_toml(&self.config_file(paths))?;
+        // No model_provider override: Codex's native ChatGPT login is active.
+        let Some(slot) = doc
+            .get("model_provider")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+        else {
+            return Ok(Some(LiveFinger {
+                native: true,
+                ..Default::default()
+            }));
+        };
+        let base_url = doc
+            .get("model_providers")
+            .and_then(|v| v.get(&slot))
+            .and_then(|t| t.get("base_url"))
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let model = doc
+            .get("model")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        Ok(Some(LiveFinger {
+            slot_key: slot,
+            base_url,
+            model,
+            native: false,
+        }))
+    }
+
     fn rescue(&self, paths: &Paths) -> Vec<super::RescuedRow> {
         use super::RescuedRow;
         const BUILTIN: &[&str] = &[

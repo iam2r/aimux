@@ -59,6 +59,23 @@ pub struct RescuedRow {
     pub active: bool,
 }
 
+/// A reverse-read of the app's live config: who is actually active right
+/// now. [`AgentAdapter::inspect`] produces one without touching the store;
+/// `aimux status` then reconciles it against the store to expose drift.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LiveFinger {
+    /// The slot key the live config points at (the display name aimux
+    /// writes); empty for apps whose config carries no slot identity
+    /// (Claude injects plain env keys).
+    pub slot_key: String,
+    /// Base URL observed in the live config (empty when native/unknown).
+    pub base_url: String,
+    /// Model observed in the live config (empty when unset).
+    pub model: String,
+    /// True when no third-party material is injected (native login).
+    pub native: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SnippetSyntax {
     Json,
@@ -169,6 +186,13 @@ pub trait AgentAdapter: Send + Sync {
     fn rescue(&self, paths: &Paths) -> Vec<RescuedRow> {
         let _ = paths;
         Vec::new()
+    }
+    /// Read the app's live config to see who is currently active, without
+    /// consulting the store. `Ok(None)` means "not installed / nothing to
+    /// report" (no live dir). Used by `aimux status`.
+    fn inspect(&self, paths: &Paths) -> Result<Option<LiveFinger>> {
+        let _ = (self, paths);
+        Ok(None)
     }
     fn model_ui(&self) -> models::ModelUi {
         models::ModelUi::Catalog {

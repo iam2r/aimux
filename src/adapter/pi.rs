@@ -77,6 +77,44 @@ impl AgentAdapter for PiAdapter {
         write_live_json(&path, &doc)
     }
 
+    fn inspect(&self, paths: &Paths) -> Result<Option<super::LiveFinger>> {
+        use super::LiveFinger;
+        if !self.is_initialized(paths) {
+            return Ok(None);
+        }
+        let settings_path = paths.pi_dir.join("settings.json");
+        if !settings_path.exists() {
+            return Ok(None);
+        }
+        let settings = read_settings_json(&settings_path)?;
+        let slot = settings
+            .get("defaultProvider")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let model = settings
+            .get("defaultModel")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let base_url = read_models_json(&paths.pi_dir.join("models.json"))
+            .ok()
+            .and_then(|m| {
+                m.get("providers")
+                    .and_then(|p| p.get(&slot))
+                    .and_then(|e| e.get("baseUrl"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string)
+            })
+            .unwrap_or_default();
+        Ok(Some(LiveFinger {
+            slot_key: slot,
+            base_url,
+            model,
+            native: false,
+        }))
+    }
+
     fn rescue(&self, paths: &Paths) -> Vec<super::RescuedRow> {
         use super::RescuedRow;
         let settings = || read_settings_json(&paths.pi_dir.join("settings.json")).ok();

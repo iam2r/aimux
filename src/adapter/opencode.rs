@@ -84,6 +84,39 @@ impl AgentAdapter for OpenCodeAdapter {
         write_live_json(&path, &doc)
     }
 
+    fn inspect(&self, paths: &Paths) -> Result<Option<super::LiveFinger>> {
+        use super::LiveFinger;
+        if !self.is_initialized(paths) {
+            return Ok(None);
+        }
+        let doc = read_json_object(&self.live_file(paths))?;
+        // "model": "<slot>/<model-id>" names the active entry; without it the
+        // config is not aimux-managed (OpenCode has no native-login mode).
+        let Some(model_ref) = doc.get("model").and_then(serde_json::Value::as_str) else {
+            return Ok(Some(LiveFinger {
+                slot_key: String::new(),
+                model: String::new(),
+                base_url: String::new(),
+                native: false,
+            }));
+        };
+        let (slot, model_id) = model_ref.split_once('/').unwrap_or((model_ref, ""));
+        let base_url = doc
+            .get("provider")
+            .and_then(|p| p.get(slot))
+            .and_then(|e| e.get("options"))
+            .and_then(|o| o.get("baseURL"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        Ok(Some(LiveFinger {
+            slot_key: slot.to_string(),
+            base_url,
+            model: model_id.to_string(),
+            native: false,
+        }))
+    }
+
     fn rescue(&self, paths: &Paths) -> Vec<super::RescuedRow> {
         use super::RescuedRow;
         let path = self.live_file(paths);

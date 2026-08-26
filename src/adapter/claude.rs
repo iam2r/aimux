@@ -109,6 +109,34 @@ impl AgentAdapter for ClaudeAdapter {
         Ok(())
     }
 
+    fn inspect(&self, paths: &Paths) -> Result<Option<super::LiveFinger>> {
+        use super::LiveFinger;
+        if !self.is_initialized(paths) {
+            return Ok(None);
+        }
+        let doc = read_json_object(&self.live_file(paths))?;
+        let env = doc.get("env").and_then(serde_json::Value::as_object);
+        let str_field = |k: &str| {
+            env.and_then(|e| e.get(k))
+                .and_then(serde_json::Value::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        };
+        let base_url = str_field("ANTHROPIC_BASE_URL").unwrap_or_default();
+        let has_key =
+            str_field("ANTHROPIC_AUTH_TOKEN").is_some() || str_field("ANTHROPIC_API_KEY").is_some();
+        // No injected material at all: Claude's native login is in charge.
+        // (A lone AUTH_TOKEN without our base URL is not ours either — it
+        // falls through as an unattributable injection.)
+        Ok(Some(LiveFinger {
+            slot_key: String::new(),
+            base_url,
+            model: str_field("ANTHROPIC_MODEL").unwrap_or_default(),
+            native: !has_key,
+        }))
+    }
+
     fn rescue(&self, paths: &Paths) -> Vec<super::RescuedRow> {
         use super::RescuedRow;
         let path = self.live_file(paths);

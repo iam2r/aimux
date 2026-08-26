@@ -9,6 +9,7 @@ mod mask;
 mod name;
 mod paths;
 mod settings;
+mod status;
 mod store;
 mod switch;
 mod tui;
@@ -57,6 +58,14 @@ enum Commands {
         #[arg(long)]
         app: Option<AppId>,
         /// JSON to stdout. Keys stay masked unless AIMUX_SHOW_SECRETS=1 (dangerous).
+        #[arg(long)]
+        json: bool,
+    },
+    /// Reconcile live agent configs against the store (drift detection)
+    Status {
+        #[arg(long)]
+        app: Option<AppId>,
+        /// JSON to stdout
         #[arg(long)]
         json: bool,
     },
@@ -247,6 +256,7 @@ fn run_command(cmd: Commands) -> Result<()> {
     match cmd {
         Commands::List { app, json } => cmd_list(app, json),
         Commands::Current { app, json } => cmd_current(app, json),
+        Commands::Status { app, json } => cmd_status(app, json),
         Commands::Use { provider, app } => cmd_use(provider, app),
         Commands::Add {
             app,
@@ -402,6 +412,17 @@ fn cmd_current(app: Option<AppId>, json: bool) -> Result<()> {
     require_adapter(app)?;
     let (_paths, store) = load_store()?;
     print_current(&store, app, json, mask::show_secrets())
+}
+
+fn cmd_status(app: Option<AppId>, json: bool) -> Result<()> {
+    require_adapter(app)?;
+    let (paths, store) = load_store()?;
+    let mut rows = status::collect(&paths, &store);
+    if let Some(app) = app {
+        rows.retain(|r| r.app == app);
+    }
+    print!("{}", status::render(&rows, json, false)?);
+    Ok(())
 }
 
 fn print_list(store: &Store, app: Option<AppId>, json: bool, show_secrets: bool) -> Result<()> {
