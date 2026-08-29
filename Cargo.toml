@@ -1,6 +1,6 @@
 [package]
 name = "aimux"
-version = "0.1.11"
+version = "0.1.12"
 edition = "2021"
 description = "Lightweight AI CLI config switcher with backup & cloud sync"
 license = "MIT"
