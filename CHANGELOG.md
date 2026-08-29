@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## 0.1.15 (2026-08-29)
+
+### Fixes
+
+- WebDAV `Push` and `Pull` now go through a confirmation popup instead of firing immediately on `p` / `u`. The popup shows the remote URL and the timestamp of the last successful sync (or "never" / "从未" on a first run); press `y` / `Enter` to proceed, `n` / `Esc` to cancel. Mirrors the existing `ConfirmDelete` / `ConfirmRestore` flow and the queue→confirm pattern used for write operations elsewhere.
+- WebDAV `GET` now accepts HTTP `206 Partial Content` alongside `200 OK` when reading the remote manifest/store. Some WebDAV servers (notably the one behind `webdav.iamrazo.eu.org` and a few nginx + gzip/brotli frontends) return `206` for a plain full-resource GET and a `Content-Range` covering the whole body; the previous strict `match 200` only path therefore rejected the second `aimux sync push` (first push writes manifest.json → second push reads it and bails on `HTTP 206`). Mirrors cc-switch's `resp.status().is_success()` handling.
+
 ## 0.1.14 (2026-08-29)
 
 ### Fixes
