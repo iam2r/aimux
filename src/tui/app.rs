@@ -835,29 +835,38 @@ impl App {
     }
 
     fn handle_catalog_key(&mut self, key: KeyEvent) {
-        // Snapshot slot_owner size before the keypress so we can detect
-        // whether deleting a row cleared any slot bindings, and surface
-        // that in the status bar.
-        let prev_slots = match &self.overlay {
-            Overlay::CatalogEditor { editor, .. } => editor.slot_owner.len(),
-            _ => 0,
-        };
         let cmd = match &mut self.overlay {
             Overlay::CatalogEditor { editor, .. } => editor.handle_key(key),
             _ => return,
         };
         match cmd {
             CatalogCmd::Continue => {
-                let now_slots = match &self.overlay {
-                    Overlay::CatalogEditor { editor, .. } => editor.slot_owner.len(),
+                // The editor sets `pending_dropped_slots` and
+                // `deleted_default_to` *only* from `delete_row`; popover
+                // and picker paths leave them untouched. Read+reset
+                // them here so non-delete operations never trigger
+                // a "row deleted" status.
+                let (dropped, default_moved) = match &mut self.overlay {
+                    Overlay::CatalogEditor { editor, .. } => (
+                        std::mem::take(&mut editor.pending_dropped_slots),
+                        editor.deleted_default_to.take(),
+                    ),
                     _ => return,
                 };
-                if now_slots < prev_slots {
-                    let n = prev_slots - now_slots;
-                    self.status = if n == 1 {
+                if dropped > 0 {
+                    self.status = if dropped == 1 {
                         t("status.catalog_row_dropped_one_slot").into()
                     } else {
-                        tf("status.catalog_row_dropped_n_slots", &[&n.to_string()])
+                        tf(
+                            "status.catalog_row_dropped_n_slots",
+                            &[&dropped.to_string()],
+                        )
+                    };
+                }
+                if let Some(new_default) = default_moved {
+                    self.status = match new_default {
+                        Some(id) => tf("status.catalog_default_moved", &[&id]),
+                        None => t("status.catalog_default_removed").into(),
                     };
                 }
             }
@@ -2078,6 +2087,131 @@ mod tests {
         assert!(
             app.status.contains("2") && app.status.contains("slot"),
             "status should mention 2 slots, got: {}",
+            app.status
+        );
+    }
+
+    #[test]
+    fn popover_unassign_does_not_spurious_status() {
+        // Cancelling a slot binding in the popover (Enter on an
+        // already-assigned slot) must NOT trigger any "row deleted" or
+        // "default moved" status. Previously the app's Continue path
+        // compared slot_owner.len() before/after and mis-attributed the
+        // popover's remove to a row delete.
+        let td = tempfile::tempdir().unwrap();
+        let paths = Paths::for_test(td.path());
+        let mut app = sample(paths);
+
+        use crate::store::ModelEntry;
+        use crate::tui::pages::models::CatalogEditor;
+        let mut p = crate::store::Provider::blank(crate::store::AppId::Claude);
+        p.id = "p".into();
+        p.name = "P".into();
+        p.base_url = "https://x".into();
+        p.api_key = "sk".into();
+        p.model = Some("a".into());
+        p.slots.insert("sonnet".into(), "b".into());
+        p.catalog = vec![
+            ModelEntry {
+                id: "a".into(),
+                ..ModelEntry::default()
+            },
+            ModelEntry {
+                id: "b".into(),
+                ..ModelEntry::default()
+            },
+        ];
+        app.overlay = Overlay::CatalogEditor {
+            editor: CatalogEditor::from_provider(crate::adapter::models::CLAUDE_FIELDS, &p),
+        };
+
+        // Baseline: no spurious status before any keys.
+        assert!(app.status.is_empty() || app.status == "Status");
+
+        // Move to row 1 (the slot-bearing row), then open the popover
+        // and re-toggle sonnet. The popover must NOT surface a status
+        // message — only `delete_row` is allowed to set pending fields.
+        app.handle_catalog_key(key(KeyCode::Char('j'))); // row 0 -> row 1
+        {
+            let Overlay::CatalogEditor { editor, .. } = &mut app.overlay else {
+                unreachable!()
+            };
+            let col = editor
+                .fields
+                .iter()
+                .position(|f| matches!(f, crate::adapter::models::CatalogField::Slots))
+                .unwrap();
+            editor.col = col;
+        }
+        app.handle_catalog_key(key(KeyCode::Char(' '))); // open popover on row 1
+        app.handle_catalog_key(key(KeyCode::Char('j'))); // cursor 0 -> 1 (sonnet)
+        app.handle_catalog_key(key(KeyCode::Enter)); // unassign
+
+        match &app.overlay {
+            Overlay::CatalogEditor { editor, .. } => {
+                assert!(
+                    !editor.slot_owner.contains_key("sonnet"),
+                    "popover unassign fired"
+                );
+                assert_eq!(editor.rows.len(), 2, "no row was deleted");
+            }
+            _ => unreachable!(),
+        }
+        // The bug: app previously fired "已删行：清理 1 个 slot 绑定"
+        // here. With the explicit pending_dropped_slots field, the
+        // status bar must NOT have been touched.
+        assert!(
+            !app.status.contains("已删行")
+                && !app.status.contains("Row deleted")
+                && !app.status.contains("Default"),
+            "popover unassign must not surface row-deleted status; got: {}",
+            app.status
+        );
+    }
+
+    #[test]
+    fn deleting_default_row_surfaces_default_moved() {
+        // Deleting the Default row should set status to "Default moved
+        // to <id>" so the user notices provider.model was reassigned.
+        let td = tempfile::tempdir().unwrap();
+        let paths = Paths::for_test(td.path());
+        let mut app = sample(paths);
+
+        use crate::store::ModelEntry;
+        use crate::tui::pages::models::CatalogEditor;
+        let mut p = crate::store::Provider::blank(crate::store::AppId::Claude);
+        p.id = "p".into();
+        p.name = "P".into();
+        p.base_url = "https://x".into();
+        p.api_key = "sk".into();
+        p.model = Some("a".into());
+        p.catalog = vec![
+            ModelEntry {
+                id: "a".into(),
+                ..ModelEntry::default()
+            },
+            ModelEntry {
+                id: "b".into(),
+                ..ModelEntry::default()
+            },
+        ];
+        app.overlay = Overlay::CatalogEditor {
+            editor: CatalogEditor::from_provider(crate::adapter::models::CLAUDE_FIELDS, &p),
+        };
+
+        // Default is row 0 (a). Press d to delete.
+        app.handle_catalog_key(key(KeyCode::Char('d')));
+        match &app.overlay {
+            Overlay::CatalogEditor { editor, .. } => {
+                assert_eq!(editor.rows.len(), 1);
+                assert_eq!(editor.default_idx, 0, "b takes the deleted row's index");
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            app.status.contains("b")
+                && (app.status.contains("Default") || app.status.contains("默认")),
+            "status should mention new default 'b'; got: {}",
             app.status
         );
     }

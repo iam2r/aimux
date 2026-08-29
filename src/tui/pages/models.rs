@@ -299,6 +299,15 @@ pub struct CatalogEditor {
     /// Popover state for the target-model-id picker (lists
     /// `KNOWN_CLAUDE_MODEL_IDS`; first item is "(none)" to clear).
     pub target_picker: Option<TargetPickerState>,
+    /// Number of slot bindings cleared by the most recent `delete_row`.
+    /// `app` consumes it after each `Continue` and the editor zeroes it;
+    /// other code paths (popover toggles, picker changes) leave it at 0
+    /// so the app's "row deleted" status only fires for actual row deletes.
+    pub pending_dropped_slots: usize,
+    /// If the most recent `delete_row` removed the Default row, the new
+    /// default row's id (or `None` if the catalog is now empty). `app`
+    /// consumes this to surface a "Default moved to …" message.
+    pub deleted_default_to: Option<Option<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -334,6 +343,8 @@ impl CatalogEditor {
             slot_owner: std::collections::BTreeMap::new(),
             slot_picker: None,
             target_picker: None,
+            pending_dropped_slots: 0,
+            deleted_default_to: None,
         }
     }
 
@@ -570,11 +581,34 @@ impl CatalogEditor {
         if self.row >= self.rows.len() {
             return;
         }
+        let was_default = self.row == self.default_idx;
         let id = self.rows[self.row].id.clone();
         self.rows.remove(self.row);
-        // Drop any slot bindings that pointed at the deleted row.
+        // Drop any slot bindings that pointed at the deleted row, and
+        // report exactly how many the row owned (before vs. after the
+        // retain) so the app's status bar reflects the deleted row's
+        // contribution rather than a coincidental length delta.
+        let before = self.slot_owner.len();
         self.slot_owner.retain(|_, v| *v != id);
-        if self.default_idx >= self.rows.len() && !self.rows.is_empty() {
+        self.pending_dropped_slots = before - self.slot_owner.len();
+        if was_default {
+            if self.rows.is_empty() {
+                self.default_idx = 0;
+                self.deleted_default_to = Some(None);
+            } else {
+                // default_idx is the deleted row's index, which now points
+                // to the row that took its place (Vec::remove shifts left).
+                if self.default_idx >= self.rows.len() {
+                    self.default_idx = self.rows.len() - 1;
+                }
+                let new_default = self
+                    .rows
+                    .get(self.default_idx)
+                    .map(|r| r.id.clone())
+                    .filter(|s| !s.trim().is_empty());
+                self.deleted_default_to = Some(new_default);
+            }
+        } else if self.default_idx >= self.rows.len() && !self.rows.is_empty() {
             self.default_idx = self.rows.len() - 1;
         }
         self.row = self.row.min(self.rows.len().saturating_sub(1));
@@ -1219,5 +1253,85 @@ mod tests {
         ed.handle_key(key(KeyCode::Char('d')));
         assert_eq!(ed.slot_owner.get("sonnet"), None);
         assert_eq!(ed.rows.len(), 1);
+    }
+
+    #[test]
+    fn popover_unassign_does_not_set_pending_dropped_slots() {
+        // Cancelling a slot binding through the slots popover (Enter on
+        // an already-assigned slot) should NOT set `pending_dropped_slots`:
+        // the row isn't deleted, the app must not show a "row deleted" message.
+        let mut ed = claude_editor_with(
+            vec![
+                ModelEntry {
+                    id: "a".into(),
+                    ..ModelEntry::default()
+                },
+                ModelEntry {
+                    id: "b".into(),
+                    ..ModelEntry::default()
+                },
+            ],
+            "a",
+        );
+        // Give row 1 the sonnet slot.
+        ed.row = 1;
+        focus_field(&mut ed, CatalogField::Slots);
+        ed.handle_key(key(KeyCode::Char(' ')));
+        ed.handle_key(key(KeyCode::Char('j')));
+        ed.handle_key(key(KeyCode::Enter));
+        assert_eq!(ed.slot_owner.get("sonnet").map(String::as_str), Some("b"));
+        assert_eq!(ed.pending_dropped_slots, 0);
+
+        // Now open the popover again on row 1 and re-toggle the same slot
+        // (cursor starts at haiku; press j to land on sonnet, then Enter
+        // to unassign).
+        ed.row = 1;
+        focus_field(&mut ed, CatalogField::Slots);
+        ed.handle_key(key(KeyCode::Char(' ')));
+        ed.handle_key(key(KeyCode::Char('j')));
+        ed.handle_key(key(KeyCode::Enter));
+        assert!(!ed.slot_owner.contains_key("sonnet"));
+        // Popover cancel must NOT have set the pending field.
+        assert_eq!(ed.pending_dropped_slots, 0);
+    }
+
+    #[test]
+    fn delete_default_row_records_new_default_id() {
+        // Deleting the Default row sets `deleted_default_to` to the new
+        // default's id, so the app can surface a "Default moved" status.
+        let mut ed = claude_editor_with(
+            vec![
+                ModelEntry {
+                    id: "a".into(),
+                    ..ModelEntry::default()
+                },
+                ModelEntry {
+                    id: "b".into(),
+                    ..ModelEntry::default()
+                },
+            ],
+            "a",
+        );
+        assert_eq!(ed.default_idx, 0);
+        ed.handle_key(key(KeyCode::Char('d')));
+        assert_eq!(ed.rows.len(), 1);
+        assert_eq!(ed.default_idx, 0, "deleted row shifts; b takes its index");
+        assert_eq!(ed.deleted_default_to, Some(Some("b".into())));
+    }
+
+    #[test]
+    fn delete_only_row_records_default_removed() {
+        // Deleting the lone row empties the catalog; `deleted_default_to`
+        // is `Some(None)` so the app knows to say "now empty".
+        let mut ed = claude_editor_with(
+            vec![ModelEntry {
+                id: "a".into(),
+                ..ModelEntry::default()
+            }],
+            "a",
+        );
+        ed.handle_key(key(KeyCode::Char('d')));
+        assert!(ed.rows.is_empty());
+        assert_eq!(ed.deleted_default_to, Some(None));
     }
 }

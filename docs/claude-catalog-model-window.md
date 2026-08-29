@@ -253,8 +253,8 @@ opus 选中，单一 `CLAUDE_CODE_MAX_CONTEXT_TOKENS`（取 Default）会与 hai
 
 ## 8. Open Risks
 
-1. **Q5 min() 过度保守**：若某行 `context_window` 误填小值（如占位 1）会被全表 min 拉低，污染 `MAX_CONTEXT_TOKENS`。**已落 mitigation**：`CatalogEditor::commit_edit` 在 §0.2.0 起对 `ContextWindow` 解析后过滤 `>= 1000`，小于阈值视为 None 不写入。重复 target 行为在 `claude.rs::patch_claude_env` 里**last-wins**（按 `provider.catalog` Vec 顺序）—— 用户两行映射到 `claude-sonnet-4-6` 时后者胜出；TUI 当前没有 visual warning（属于 §4.2 "搬家"的同族 UX 问题）。
-2. **slot 重新指派的撤销语义**：取消 slot 落点后旧行直接清空（in-editor `delete_row` 也清 `slot_owner`），状态栏会提示"已清 N 个 slot"；但若用户希望"回滚到上一个拥有者"——见 §4.2 "搬家"措辞——需要单独设计。**已记 issue：待 TUI 重做行重排时一并处理**。
-3. **`modelOverrides` 多版本兼容性**：v2.1.200 之前的 Claude Code 仍会旁路 env 改写。Q3 决策只覆盖本机 2.1.251，跨用户安装版本无法保证。**已记 issue**：README 加 `requires Claude Code >= v2.1.200` 提示。
-4. **agate 未来若新增 Anthropic 错误改写**：Q2 结论依赖"agate 不动 Anthropic wire 错误"的现状。agate 升级时需保留 `createAnthropicErrorBody(message, type)` 透传契约——可考虑在 agate 测试里加一条"Anthropic 4xx 文案保真"用例，但属于跨仓工作。**已记 issue**。
-5. **Q6 占位行的"添加一个模型"渲染**：实现期需明确占位行的编辑提交时机（首次失焦即物化 / 显式按钮），本设计未定。**已记 issue**。
+1. **Q5 min() 过度保守**：若某行 `context_window` 误填小值（如占位 1）会被全表 min 拉低，污染 `MAX_CONTEXT_TOKENS`。**已落 mitigation**：`CatalogEditor::commit_edit` 在 aimux v0.1.12 起对 `ContextWindow` 解析后过滤 `>= 1000`，小于阈值视为 None 不写入。重复 target 行为在 `claude.rs::patch_claude_env` 里**last-wins**（按 `provider.catalog` Vec 顺序）—— 用户两行映射到 `claude-sonnet-4-6` 时后者胜出；TUI 当前没有 visual warning（属于 §4.2 "搬家"的同族 UX 问题）。
+2. **slot 重新指派的撤销语义**：取消 slot 落点后旧行直接清空（in-editor `delete_row` 也清 `slot_owner`），状态栏会提示"已清 N 个 slot"；但若用户希望"回滚到上一个拥有者"——见 §4.2 "搬家"措辞——需要单独设计。**待建 issue**：TUI 重做行重排时一并处理。
+3. **`modelOverrides` 多版本兼容性**：v2.1.200 之前的 Claude Code 仍会旁路 env 改写。Q3 决策只覆盖本机 2.1.251，跨用户安装版本无法保证。**待建 issue**：README 加 `requires Claude Code >= v2.1.200` 提示。
+4. **agate 未来若新增 Anthropic 错误改写**：Q2 结论依赖"agate 不动 Anthropic wire 错误"的现状。agate 升级时需保留 `createAnthropicErrorBody(message, type)` 透传契约——可考虑在 agate 测试里加一条"Anthropic 4xx 文案保真"用例，但属于跨仓工作。**待建 issue**。
+5. **Q6 占位行的"添加一个模型"渲染**：实现期需明确占位行的编辑提交时机（首次失焦即物化 / 显式按钮），本设计未定。**待建 issue**。
