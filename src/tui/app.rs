@@ -717,7 +717,6 @@ impl App {
                 };
                 self.overlay = Overlay::None;
                 self.start_job(job);
-                return;
             }
             _ => self.overlay = Overlay::None,
         }

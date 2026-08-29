@@ -313,6 +313,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)] // the fake CLI is a #!/bin/sh script; Windows cannot exec it
     fn end_to_end_launch_uses_isolated_env() {
         let (tmp, var) = stage(&provider(AppId::Codex)).unwrap();
 
