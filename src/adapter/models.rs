@@ -59,28 +59,36 @@ pub const OPENCODE_FIELDS: &[CatalogField] = &[
 /// prints its "unrecognised model" warning.
 ///
 /// Sourced from `/home/razo/.local/share/claude/versions/2.1.251` — the
-/// `id` field of every entry in the `so` model table (the same table the
-/// CLI's `ef`/`yMe` rewrite helpers consume). New Claude Code releases may
-/// add IDs; keep this list in sync.
+/// model-table entries plus the CLI's own known-models list (`"claude-3-5-
+/// sonnet","claude-3-7-sonnet","claude-fable-5",…,"claude-sonnet-5"`), the
+/// same tables the `ef`/`yMe` rewrite helpers consume.
+///
+/// Dated snapshot IDs (`claude-sonnet-4-5-20250929` style) are deliberately
+/// excluded: they pin a single release and go stale, while the undated alias
+/// always tracks the current snapshot — and both work as `modelOverrides`
+/// keys. New Claude Code releases may add IDs; keep this list in sync.
 pub const KNOWN_CLAUDE_MODEL_IDS: &[&str] = &[
+    // 3.x legacy names present in the CLI's own known-models list.
     "claude-haiku-3-5",
-    "claude-haiku-4-5",
-    "claude-haiku-4-5-20251001",
     "claude-sonnet-3-7",
+    "claude-3-5-sonnet",
+    "claude-3-7-sonnet",
+    // 4-series.
+    "claude-haiku-4-5",
     "claude-sonnet-4-0",
-    "claude-sonnet-4-20250514",
     "claude-sonnet-4-5",
-    "claude-sonnet-4-5-20250929",
     "claude-sonnet-4-6",
     "claude-opus-4-0",
     "claude-opus-4-1",
-    "claude-opus-4-1-20250805",
-    "claude-opus-4-20250514",
     "claude-opus-4-5",
-    "claude-opus-4-5-20251101",
     "claude-opus-4-6",
     "claude-opus-4-7",
     "claude-opus-4-8",
+    // 5-series tier models (no dated variants in this build).
+    "claude-sonnet-5",
+    "claude-opus-5",
+    "claude-fable-5",
+    "claude-mythos-5",
 ];
 
 pub fn is_known_claude_model_id(id: &str) -> bool {
@@ -274,6 +282,34 @@ fn push_id(ids: &mut Vec<String>, id: &str) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn known_claude_model_ids_covers_all_tiers_and_skips_dated() {
+        // Every tier's undated alias is selectable as a modelOverrides target.
+        for id in [
+            "claude-3-5-sonnet",
+            "claude-haiku-4-5",
+            "claude-sonnet-4-6",
+            "claude-opus-4-8",
+            "claude-sonnet-5",
+            "claude-opus-5",
+            "claude-fable-5",
+            "claude-mythos-5",
+        ] {
+            assert!(is_known_claude_model_id(id), "{id} should be known");
+        }
+        // Dated snapshot IDs are deliberately excluded from the table.
+        for id in [
+            "claude-haiku-4-5-20251001",
+            "claude-sonnet-4-5-20250929",
+            "claude-opus-4-8-20990101",
+        ] {
+            assert!(!is_known_claude_model_id(id), "{id} should be filtered");
+        }
+        // Unknown / proxy-style ids stay unknown.
+        assert!(!is_known_claude_model_id("hilinkup/z-ai/glm-5.3-flash"));
+        assert!(!is_known_claude_model_id(""));
+    }
 
     #[test]
     fn parse_openai_data_array() {

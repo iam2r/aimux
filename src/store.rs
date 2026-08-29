@@ -68,13 +68,13 @@ pub struct ModelEntry {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u64>,
     /// Claude-only: the Anthropic model ID this row proxies. When set to a
-    /// string Claude Code recognises (e.g. `claude-sonnet-4-6-20251001`),
-    /// the adapter writes `ANTHROPIC_DEFAULT_*_MODEL = <target>` for any
-    /// slot the row owns, and emits a `modelOverrides[<target>] = <id>`
-    /// entry that translates the Anthropic ID to the row's actual id at
-    /// request time. When `None` or not in the known-id table, the row
-    /// stays an unknown proxy id and Claude Code prints its "unrecognised
-    /// model" warning.
+    /// string Claude Code recognises (e.g. `claude-opus-4-8`; the known-id
+    /// table deliberately lists only undated aliases), the adapter writes
+    /// `ANTHROPIC_DEFAULT_*_MODEL = <target>` for any slot the row owns,
+    /// and emits a `modelOverrides[<target>] = <id>` entry that translates
+    /// the Anthropic ID to the row's actual id at request time. When `None`
+    /// or not in the known-id table, the row stays an unknown proxy id and
+    /// Claude Code prints its "unrecognised model" warning.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_model_id: Option<String>,
 }

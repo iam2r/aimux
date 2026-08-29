@@ -96,7 +96,7 @@ pub struct ModelEntry {
 
 - **slots 列**：行内多选弹层，逐 slot 指派；指派即"搬家"（旧行的该 slot 失位）。
 - **Default 列**：radio 单选，写入 `provider.model`。
-- **target model id 列**：下拉，候选 = `KNOWN_CLAUDE_MODEL_IDS`（从本地 Claude Code 二进制提取），首项 `(none)` 表示清空。下拉里只能选**精确 Anthropic 模型 ID**（带日期后缀如 `claude-sonnet-4-6-20251001`）—— 短别名（`sonnet-4-5` 等）不能作 `modelOverrides` key（按官方文档：未知的 key 被忽略）。
+- **target model id 列**：下拉，候选 = `KNOWN_CLAUDE_MODEL_IDS`（从本地 Claude Code 二进制提取，**只含未带日期的别名**——带日期的快照 ID 会过时，未带日期的别名永远指向当前版本），首项 `(none)` 表示清空。下拉里只能选**精确 Anthropic 模型 ID**（如 `claude-opus-4-8`）—— 短别名（`sonnet-4-5` 等）不能作 `modelOverrides` key（按官方文档：未知的 key 被忽略）。
 - `ModelUi::Catalog` 切换（claude 不再走 `Slots` 变体）→ `form.rs::models_summary` 与 models 页统一走 catalog 分支。
 
 ### 4.3 live 生成规则（`patch_claude_env` 重构）
