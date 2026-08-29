@@ -858,7 +858,7 @@ pub fn field_label(field: CatalogField) -> &'static str {
         CatalogField::ContextWindow => t("field.context_window"),
         CatalogField::MaxTokens => t("field.max_tokens"),
         CatalogField::Slots => t("field.slot_assignment"),
-        CatalogField::TargetModelId => t("field.model_overrides"),
+        CatalogField::TargetModelId => t("field.target_model_id"),
     }
 }
 

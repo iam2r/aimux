@@ -16,6 +16,7 @@ use super::pages::form;
 use super::pages::models::{self, CatalogEditor, ModelPicker, PickerKind, SlotEditor};
 use super::pages::{backups, settings as settings_page, sync};
 use super::theme::Theme;
+use crate::adapter::models as admodels;
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
@@ -400,9 +401,11 @@ fn draw_picker(frame: &mut Frame, picker: &mut ModelPicker, area: Rect, theme: T
 }
 
 fn catalog_cell_text(
+    editor: &CatalogEditor,
+    i: usize,
     field: &crate::adapter::models::CatalogField,
-    row: &crate::store::ModelEntry,
 ) -> String {
+    let row = &editor.rows[i];
     match field {
         crate::adapter::models::CatalogField::Id => row.id.clone(),
         crate::adapter::models::CatalogField::Label => row.label.clone().unwrap_or_default(),
@@ -413,8 +416,28 @@ fn catalog_cell_text(
         crate::adapter::models::CatalogField::MaxTokens => {
             row.max_tokens.map(|n| n.to_string()).unwrap_or_default()
         }
-        crate::adapter::models::CatalogField::Slots
-        | crate::adapter::models::CatalogField::TargetModelId => String::new(),
+        // Comma-joined list of the slot aliases that own this row.
+        crate::adapter::models::CatalogField::Slots => {
+            let names: Vec<&str> = admodels::CLAUDE_SLOTS
+                .iter()
+                .filter(|s| {
+                    editor
+                        .slot_owner
+                        .get(s.key)
+                        .map(|owner| owner == &row.id)
+                        .unwrap_or(false)
+                })
+                .map(|s| t(s.label))
+                .collect();
+            if names.is_empty() {
+                String::new()
+            } else {
+                names.join(",")
+            }
+        }
+        crate::adapter::models::CatalogField::TargetModelId => {
+            row.target_model_id.clone().unwrap_or_default()
+        }
     }
 }
 
@@ -460,8 +483,8 @@ fn draw_catalog(frame: &mut Frame, editor: &CatalogEditor, area: Rect, theme: Th
         .map(|f| models::field_label(*f).chars().count())
         .collect();
     for (c, field) in editor.fields.iter().enumerate() {
-        for row in &editor.rows {
-            let len = catalog_cell_text(field, row).chars().count();
+        for i in 0..editor.rows.len() {
+            let len = catalog_cell_text(editor, i, field).chars().count();
             widths[c] = widths[c].max(len);
         }
     }
@@ -498,14 +521,14 @@ fn draw_catalog(frame: &mut Frame, editor: &CatalogEditor, area: Rect, theme: Th
     let mut lines = vec![Line::from(header_spans)];
 
     // --- rows -------------------------------------------------------------
-    for (i, row) in editor.rows.iter().enumerate() {
+    for i in 0..editor.rows.len() {
         let star = if i == editor.default_idx { "*" } else { " " };
         let cur = if i == editor.row { ">" } else { " " };
         let mut spans = vec![Span::styled(format!("{cur}{star}"), theme.fg(theme.fg))];
         let cell_style = theme.fg(theme.fg);
         for (c, field) in editor.fields.iter().enumerate() {
             let editing_cell = editor.editing && i == editor.row && c == editor.col;
-            let raw = catalog_cell_text(field, row);
+            let raw = catalog_cell_text(editor, i, field);
             let selected = i == editor.row && c == editor.col;
             if editing_cell {
                 // Bracketed like the selected cell; inner width is fixed so
@@ -534,6 +557,51 @@ fn draw_catalog(frame: &mut Frame, editor: &CatalogEditor, area: Rect, theme: Th
         lines.push(Line::from(spans));
     }
     popup_lines_w(frame, area, t("ui.catalog"), lines, theme, 18, want_w);
+
+    // --- in-cell popovers ---------------------------------------------------
+    // The slot-assignment and target-model-id pickers are editor state, not
+    // separate overlays; draw them on top of the catalog grid.
+    if let Some(picker) = editor.slot_picker.as_ref() {
+        let lines: Vec<Line> = admodels::CLAUDE_SLOTS
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let cur = if i == picker.cursor { ">" } else { " " };
+                let own = editor
+                    .rows
+                    .get(picker.row)
+                    .map(|r| r.id.as_str())
+                    .unwrap_or("");
+                let mark = editor
+                    .slot_owner
+                    .get(s.key)
+                    .map(|owner| owner == own)
+                    .unwrap_or(false);
+                Line::from(Span::styled(
+                    format!("{cur}[{}] {}", if mark { "x" } else { " " }, t(s.label)),
+                    theme.fg(theme.fg),
+                ))
+            })
+            .collect();
+        popup_lines_w(frame, area, t("field.slot_assignment"), lines, theme, 8, 28);
+    }
+    if let Some(picker) = editor.target_picker.as_ref() {
+        let mut lines = Vec::new();
+        // Item 0 is "(none)" — clears the row's target_model_id.
+        let none_cur = if picker.cursor == 0 { ">" } else { " " };
+        lines.push(Line::from(Span::styled(
+            format!("{none_cur}(none)"),
+            theme.fg(theme.fg),
+        )));
+        for (i, id) in admodels::KNOWN_CLAUDE_MODEL_IDS.iter().enumerate() {
+            let cur = if i + 1 == picker.cursor { ">" } else { " " };
+            lines.push(Line::from(Span::styled(
+                format!("{cur}{id}"),
+                theme.fg(theme.fg),
+            )));
+        }
+        popup_lines_w(frame, area, t("field.target_model_id"), lines, theme, 8, 36);
+    }
 }
 
 fn draw_slots(frame: &mut Frame, editor: &SlotEditor, area: Rect, theme: Theme) {
@@ -689,6 +757,97 @@ pub(crate) fn centered(area: Rect, w: u16, h: u16) -> Rect {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn catalog_popovers_are_rendered_when_open() {
+        // Regression: handle_space/begin_edit set slot_picker/target_picker
+        // state, but draw_catalog never drew them — the popover was open,
+        // invisible, and ate every keypress. Both popovers must now paint.
+        use crate::adapter::models::CLAUDE_FIELDS;
+        use crate::store::ModelEntry;
+        use crate::tui::pages::models::{CatalogEditor, SlotPickerState, TargetPickerState};
+        let mut editor = CatalogEditor::new(
+            CLAUDE_FIELDS,
+            vec![ModelEntry {
+                id: "hilinkup/z-ai/glm-5.3".into(),
+                target_model_id: Some("claude-sonnet-4-6".into()),
+                ..ModelEntry::default()
+            }],
+            Some("hilinkup/z-ai/glm-5.3"),
+        );
+        editor.row = 0;
+        editor.col = 4; // TargetModelId
+        editor.target_picker = Some(TargetPickerState { row: 0, cursor: 1 });
+
+        let render = |editor: &CatalogEditor| -> String {
+            let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
+            let theme = Theme::for_app(AppId::Claude);
+            terminal
+                .draw(|f| draw_catalog(f, editor, f.area(), theme))
+                .unwrap();
+            (0..30)
+                .map(|y| row(&terminal, y))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+
+        // Target picker: mutually exclusive with the slot picker in practice
+        // (an open popover intercepts every key), so render them separately.
+        let target_screen = render(&editor);
+        assert!(
+            target_screen.contains("claude-sonnet-4-6"),
+            "target picker rows"
+        );
+        assert!(
+            target_screen.contains("(none)"),
+            "target picker (none) item"
+        );
+        assert!(
+            target_screen.contains("Target model id"),
+            "target picker title"
+        );
+
+        editor.target_picker = None;
+        editor.col = 3; // Slots
+        editor.slot_picker = Some(SlotPickerState { row: 0, cursor: 0 });
+        let slot_screen = render(&editor);
+        for slot in ["Haiku", "Sonnet", "Opus", "Fable", "Subagent"] {
+            assert!(slot_screen.contains(slot), "slot picker {slot}");
+        }
+    }
+
+    #[test]
+    fn catalog_shows_slot_and_target_values_inline() {
+        // The Slots / TargetModelId columns used to render always-empty text;
+        // the grid must show the row's slot aliases and target id.
+        use crate::adapter::models::CLAUDE_FIELDS;
+        use crate::store::ModelEntry;
+        use crate::tui::pages::models::CatalogEditor;
+        let mut editor = CatalogEditor::new(
+            CLAUDE_FIELDS,
+            vec![ModelEntry {
+                id: "glm".into(),
+                target_model_id: Some("claude-sonnet-4-6".into()),
+                ..ModelEntry::default()
+            }],
+            Some("glm"),
+        );
+        editor.slot_owner.insert("sonnet", "glm".into());
+        editor.slot_owner.insert("subagent", "glm".into());
+
+        let mut terminal = Terminal::new(TestBackend::new(120, 20)).unwrap();
+        let theme = Theme::for_app(AppId::Claude);
+        terminal
+            .draw(|f| draw_catalog(f, &editor, f.area(), theme))
+            .unwrap();
+        let joined: String = (0..20)
+            .map(|y| row(&terminal, y))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(joined.contains("Sonnet"), "slot alias shown inline");
+        assert!(joined.contains("Subagent"), "slot alias shown inline");
+        assert!(joined.contains("claude-sonnet-4-6"), "target shown inline");
+    }
+
     #[test]
     fn catalog_editing_keeps_columns_aligned() {
         use crate::adapter::models::OPENCODE_FIELDS;
