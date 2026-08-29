@@ -244,7 +244,7 @@ impl DavClient {
     pub(crate) async fn get(&self, url: &str) -> Result<Option<Vec<u8>>> {
         let (status, body) = self.send(Method::GET, url, None, &[], true).await?;
         match status.as_u16() {
-            200 => Ok(Some(body)),
+            200 | 206 => Ok(Some(body)),
             404 => Ok(None),
             401 | 403 => anyhow::bail!("webdav auth failed"),
             other => anyhow::bail!("GET {} failed: HTTP {other}", redact_url(url)),
