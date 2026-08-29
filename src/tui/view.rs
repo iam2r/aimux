@@ -65,7 +65,11 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             &tf("confirm.restore", &[name]),
             theme,
         ),
-        Overlay::ConfirmSync { kind, url, last_sync_at } => {
+        Overlay::ConfirmSync {
+            kind,
+            url,
+            last_sync_at,
+        } => {
             let title = match kind {
                 SyncKind::Push => t("ui.sync_push"),
                 SyncKind::Pull => t("ui.sync_pull"),

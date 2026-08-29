@@ -33,15 +33,28 @@ pub enum Page {
 
 pub enum Overlay {
     None,
-    ConfirmDelete { id: String, name: String },
-    ConfirmRestore { name: String },
-    ConfirmSync { kind: SyncKind, url: String, last_sync_at: String },
+    ConfirmDelete {
+        id: String,
+        name: String,
+    },
+    ConfirmRestore {
+        name: String,
+    },
+    ConfirmSync {
+        kind: SyncKind,
+        url: String,
+        last_sync_at: String,
+    },
     Form(Form),
     Syncing,
     FetchingModels,
     ModelPicker(ModelPicker),
-    CatalogEditor { editor: CatalogEditor },
-    SlotEditor { editor: SlotEditor },
+    CatalogEditor {
+        editor: CatalogEditor,
+    },
+    SlotEditor {
+        editor: SlotEditor,
+    },
     SnippetEditor(SnippetPage),
 }
 
@@ -190,9 +203,9 @@ impl App {
         }
         match &self.overlay {
             Overlay::Form(_) => t("ui.form_hint").into(),
-            Overlay::ConfirmDelete { .. } | Overlay::ConfirmRestore { .. } | Overlay::ConfirmSync { .. } => {
-                t("ui.confirm_hint").into()
-            }
+            Overlay::ConfirmDelete { .. }
+            | Overlay::ConfirmRestore { .. }
+            | Overlay::ConfirmSync { .. } => t("ui.confirm_hint").into(),
             Overlay::Syncing | Overlay::FetchingModels => t("status.hint_syncing").into(),
             Overlay::ModelPicker(_) => t("status.hint_picker").into(),
             Overlay::CatalogEditor { .. } => t("status.hint_catalog").into(),
@@ -253,7 +266,9 @@ impl App {
         }
         if matches!(
             self.overlay,
-            Overlay::ConfirmDelete { .. } | Overlay::ConfirmRestore { .. } | Overlay::ConfirmSync { .. }
+            Overlay::ConfirmDelete { .. }
+                | Overlay::ConfirmRestore { .. }
+                | Overlay::ConfirmSync { .. }
         ) {
             self.handle_confirm_key(key);
             return false;
@@ -2290,7 +2305,13 @@ mod tests {
         // p → ConfirmSync (Push) overlay
         app.handle_action(Action::SyncPush);
         assert!(
-            matches!(app.overlay, Overlay::ConfirmSync { kind: SyncKind::Push, .. }),
+            matches!(
+                app.overlay,
+                Overlay::ConfirmSync {
+                    kind: SyncKind::Push,
+                    ..
+                }
+            ),
             "expected ConfirmSync Push, got {:?}",
             overlay_label(&app.overlay)
         );
@@ -2313,7 +2334,13 @@ mod tests {
         // u → ConfirmSync (Pull)
         app.handle_action(Action::SyncPull);
         assert!(
-            matches!(app.overlay, Overlay::ConfirmSync { kind: SyncKind::Pull, .. }),
+            matches!(
+                app.overlay,
+                Overlay::ConfirmSync {
+                    kind: SyncKind::Pull,
+                    ..
+                }
+            ),
             "expected ConfirmSync Pull, got {:?}",
             overlay_label(&app.overlay)
         );
