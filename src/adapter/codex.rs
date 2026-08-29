@@ -429,6 +429,7 @@ fn read_catalog_entries(path: &Path) -> Option<Vec<crate::store::ModelEntry>> {
                 label: r.display_name,
                 context_window: r.context_window,
                 max_tokens: r.max_tokens,
+                target_model_id: None,
             })
             .collect(),
     )
@@ -754,6 +755,7 @@ mod tests {
             label: Some("GPT-5".into()),
             context_window: Some(192_000),
             max_tokens: Some(999),
+            target_model_id: None,
         }];
         let outcome = CodexAdapter.apply(&paths, &p).unwrap();
         match outcome {

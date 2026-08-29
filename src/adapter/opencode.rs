@@ -169,6 +169,7 @@ impl AgentAdapter for OpenCodeAdapter {
                             max_tokens: v
                                 .pointer("/limit/output")
                                 .and_then(serde_json::Value::as_u64),
+                            target_model_id: None,
                         })
                         .collect()
                 })
@@ -664,12 +665,14 @@ mod tests {
                 label: Some("GPT-4o".into()),
                 context_window: Some(128_000),
                 max_tokens: Some(4096),
+                target_model_id: None,
             },
             ModelEntry {
                 id: "o3".into(),
                 label: Some("o3".into()),
                 context_window: Some(200_000),
                 max_tokens: None,
+                target_model_id: None,
             },
         ];
         OpenCodeAdapter.apply(&paths, &p).unwrap();

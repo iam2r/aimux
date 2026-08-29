@@ -67,6 +67,16 @@ pub struct ModelEntry {
     pub context_window: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<u64>,
+    /// Claude-only: the Anthropic model ID this row proxies. When set to a
+    /// string Claude Code recognises (e.g. `claude-sonnet-4-6-20251001`),
+    /// the adapter writes `ANTHROPIC_DEFAULT_*_MODEL = <target>` for any
+    /// slot the row owns, and emits a `modelOverrides[<target>] = <id>`
+    /// entry that translates the Anthropic ID to the row's actual id at
+    /// request time. When `None` or not in the known-id table, the row
+    /// stays an unknown proxy id and Claude Code prints its "unrecognised
+    /// model" warning.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_model_id: Option<String>,
 }
 
 fn is_false(v: &bool) -> bool {
@@ -262,7 +272,7 @@ impl Store {
         let draft_path = paths.draft_file();
 
         if store_path.exists() {
-            let (store, dropped_gemini) = load_store_json(&store_path)?;
+            let (mut store, dropped_gemini) = load_store_json(&store_path)?;
             if store.version < STORE_VERSION {
                 log::debug!(
                     "store.load migrate version={} -> {}",
@@ -271,7 +281,8 @@ impl Store {
                 );
                 return migrate_older(store, paths);
             }
-            if dropped_gemini {
+            let seeded = seed_claude_catalog(&mut store);
+            if dropped_gemini || seeded {
                 // also covers copying legacy store.snippets onto providers
                 store.save(paths)?;
             }
@@ -406,6 +417,83 @@ fn drop_gemini_from_store_value(value: &mut serde_json::Value) -> bool {
     dropped
 }
 
+/// Idempotently seed the catalog of every Claude provider that doesn't
+/// have one yet, so the new catalog-style editor has rows to display.
+///
+/// Rule (per Q6 of `docs/claude-catalog-model-window.md`):
+/// 1. If `provider.model` is `Some(id)`, seed one row with that id.
+/// 2. For each non-empty `provider.slots` value not already covered by (1)
+///    or the existing catalog, seed one row with that id.
+/// 3. If (1) and (2) produced nothing, the editor renders an in-memory
+///    "add a model" placeholder; the SSOT stays empty.
+///
+/// Returns `true` if any row was added (caller persists).
+fn seed_claude_catalog(store: &mut Store) -> bool {
+    // The 5 keys here must mirror `crate::adapter::models::CLAUDE_SLOTS`.
+    // Duplicated to avoid a `store -> adapter` dependency cycle.
+    const CLAUDE_SLOT_KEYS: &[&str] = &["haiku", "sonnet", "opus", "fable", "subagent"];
+
+    let mut mutated = false;
+    for p in store.providers.values_mut() {
+        if p.app != AppId::Claude {
+            continue;
+        }
+        if p.official {
+            // Officials strip their catalog in apply; no point seeding.
+            continue;
+        }
+        if !p.catalog.is_empty() {
+            // Already migrated; idempotent.
+            continue;
+        }
+
+        // Step 1: default model.
+        let mut seeded_ids: Vec<String> = Vec::new();
+        if let Some(id) = p.model.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+            p.catalog.push(ModelEntry {
+                id: id.to_string(),
+                label: None,
+                context_window: None,
+                max_tokens: None,
+                target_model_id: None,
+            });
+            seeded_ids.push(id.to_string());
+            mutated = true;
+        }
+
+        // Step 2: each non-empty slot value that is not already represented.
+        for key in CLAUDE_SLOT_KEYS {
+            if *key == "subagent" {
+                // `subagent` is the agent-role slot; not a model a user
+                // typically edits. Skip from seeding to keep the grid focused.
+                continue;
+            }
+            let Some(id) = p
+                .slots
+                .get(*key)
+                .map(String::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            else {
+                continue;
+            };
+            if seeded_ids.iter().any(|s| s == id) {
+                continue;
+            }
+            p.catalog.push(ModelEntry {
+                id: id.to_string(),
+                label: None,
+                context_window: None,
+                max_tokens: None,
+                target_model_id: None,
+            });
+            seeded_ids.push(id.to_string());
+            mutated = true;
+        }
+    }
+    mutated
+}
+
 fn migrate_older(mut store: Store, paths: &Paths) -> Result<Store> {
     store.version = STORE_VERSION;
     store.save(paths)?;
@@ -510,7 +598,10 @@ mod tests {
             false
         );
         let text = fs::read_to_string(paths.store_file()).unwrap();
-        assert!(!text.contains("\"catalog\""));
+        // `catalog` is now seeded from provider.model on first load; the slot
+        // haiku-id dedupes against model so no second row is added.
+        assert!(text.contains("\"catalog\""));
+        assert!(text.contains("\"id\": \"sonnet\""));
         assert!(!text.contains("\"snippets\""));
     }
 
@@ -663,8 +754,10 @@ mod tests {
         store.current.insert(AppId::Claude, "packy".into());
         store.save(&paths).unwrap();
         let loaded = Store::load(&paths).unwrap();
-        // Load seeds the built-in official rows on both sides.
+        // Load seeds the built-in official rows on both sides, and migrates
+        // empty claude catalogs from provider.model.
         store.ensure_official_providers();
+        let _ = seed_claude_catalog(&mut store);
         assert_eq!(loaded, store);
         assert!(
             !serde_json::to_string(&loaded)
@@ -853,6 +946,139 @@ mod tests {
         // No user rows; only the seeded built-in officials are present.
         assert!(store.providers.values().all(|p| p.official));
         assert!(paths.draft_file().exists());
+    }
+
+    #[test]
+    fn seed_skips_official_providers() {
+        let (_td, paths) = setup();
+        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fs::write(
+            paths.store_file(),
+            r#"{"version":1,"current":{},"providers":{"claude-official":{"id":"claude-official","name":"Claude Official","app":"claude","base_url":"","api_key":"","official":true}}}"#,
+        )
+        .unwrap();
+        let store = Store::load(&paths).unwrap();
+        assert!(store.providers["claude-official"].catalog.is_empty());
+    }
+
+    #[test]
+    fn seed_dedupes_default_model_against_slots() {
+        let (_td, paths) = setup();
+        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fs::write(
+            paths.store_file(),
+            r#"{"version":1,"current":{},"providers":{"p":{"id":"p","name":"P","app":"claude","base_url":"u","api_key":"k","model":"shared","slots":{"haiku":"shared","sonnet":"other"}}}}"#,
+        )
+        .unwrap();
+        let store = Store::load(&paths).unwrap();
+        let cat = &store.providers["p"].catalog;
+        let ids: Vec<&str> = cat.iter().map(|m| m.id.as_str()).collect();
+        // default "shared" + slot "sonnet" -> "other"; haiku skipped (same as default).
+        assert_eq!(ids, vec!["shared", "other"]);
+    }
+
+    #[test]
+    fn seed_runs_only_when_catalog_empty() {
+        let (_td, paths) = setup();
+        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fs::write(
+            paths.store_file(),
+            r#"{"version":1,"current":{},"providers":{"p":{"id":"p","name":"P","app":"claude","base_url":"u","api_key":"k","model":"ignored","catalog":[{"id":"existing","context_window":12345}]}}}"#,
+        )
+        .unwrap();
+        let store = Store::load(&paths).unwrap();
+        let cat = &store.providers["p"].catalog;
+        // Already populated -> not overwritten.
+        assert_eq!(cat.len(), 1);
+        assert_eq!(cat[0].id, "existing");
+        assert_eq!(cat[0].context_window, Some(12345));
+    }
+
+    #[test]
+    fn seed_skips_subagent_slot() {
+        let (_td, paths) = setup();
+        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fs::write(
+            paths.store_file(),
+            r#"{"version":1,"current":{},"providers":{"p":{"id":"p","name":"P","app":"claude","base_url":"u","api_key":"k","slots":{"subagent":"agent-only","haiku":"h"}}}}"#,
+        )
+        .unwrap();
+        let store = Store::load(&paths).unwrap();
+        let cat = &store.providers["p"].catalog;
+        let ids: Vec<&str> = cat.iter().map(|m| m.id.as_str()).collect();
+        // subagent skipped, haiku only.
+        assert_eq!(ids, vec!["h"]);
+    }
+
+    #[test]
+    fn seed_leaves_non_claude_apps_alone() {
+        let (_td, paths) = setup();
+        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fs::write(
+            paths.store_file(),
+            r#"{"version":1,"current":{},"providers":{"p":{"id":"p","name":"P","app":"codex","base_url":"u","api_key":"k","model":"gpt-4o"}}}"#,
+        )
+        .unwrap();
+        let store = Store::load(&paths).unwrap();
+        assert!(store.providers["p"].catalog.is_empty());
+    }
+
+    #[test]
+    fn seed_is_idempotent() {
+        let (_td, paths) = setup();
+        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fs::write(
+            paths.store_file(),
+            r#"{"version":1,"current":{},"providers":{"p":{"id":"p","name":"P","app":"claude","base_url":"u","api_key":"k","model":"m","slots":{"haiku":"h"}}}}"#,
+        )
+        .unwrap();
+        let first = Store::load(&paths).unwrap();
+        let after = Store::load(&paths).unwrap();
+        assert_eq!(first.providers["p"].catalog, after.providers["p"].catalog);
+        assert_eq!(after.providers["p"].catalog.len(), 2);
+    }
+
+    #[test]
+    fn seed_persists_rewritten_store() {
+        let (_td, paths) = setup();
+        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fs::write(
+            paths.store_file(),
+            r#"{"version":1,"current":{},"providers":{"p":{"id":"p","name":"P","app":"claude","base_url":"u","api_key":"k","model":"m"}}}"#,
+        )
+        .unwrap();
+        Store::load(&paths).unwrap();
+        // Reload from disk to confirm the seeded row was actually written out.
+        let body = fs::read_to_string(paths.store_file()).unwrap();
+        assert!(body.contains("\"catalog\""));
+        assert!(body.contains("\"id\": \"m\""));
+    }
+
+    #[test]
+    fn model_entry_target_model_id_default_skipped() {
+        let entry = ModelEntry::default();
+        assert!(serde_json::to_string(&entry)
+            .unwrap()
+            .contains("\"id\":\"\""));
+        assert!(!serde_json::to_string(&entry)
+            .unwrap()
+            .contains("target_model_id"));
+    }
+
+    #[test]
+    fn model_entry_target_model_id_round_trip() {
+        let entry = ModelEntry {
+            id: "m".into(),
+            target_model_id: Some("claude-sonnet-4-6-20251001".into()),
+            ..ModelEntry::default()
+        };
+        let text = serde_json::to_string(&entry).unwrap();
+        assert!(text.contains("\"target_model_id\":\"claude-sonnet-4-6-20251001\""));
+        let back: ModelEntry = serde_json::from_str(&text).unwrap();
+        assert_eq!(
+            back.target_model_id.as_deref(),
+            Some("claude-sonnet-4-6-20251001")
+        );
     }
 
     #[test]

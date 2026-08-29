@@ -272,6 +272,28 @@ pub struct CatalogEditor {
     pub editing: bool,
     pub buf: String,
     pub buf_cursor: usize,
+    /// Slot assignment (haiku/sonnet/opus/fable/subagent) per row, by id.
+    /// A row is "assigned" to a slot iff `slot_owner[slot] == Some(row.id)`.
+    /// Maintained alongside `rows` so the catalog is the SSOT for ids/metadata
+    /// and `slot_owner` is the SSOT for slot-to-id binding.
+    pub slot_owner: std::collections::BTreeMap<&'static str, String>,
+    /// Popover state for the slot-assignment editor (open on a non-default row).
+    pub slot_picker: Option<SlotPickerState>,
+    /// Popover state for the target-model-id picker (lists
+    /// `KNOWN_CLAUDE_MODEL_IDS`; first item is "(none)" to clear).
+    pub target_picker: Option<TargetPickerState>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SlotPickerState {
+    pub row: usize,
+    pub cursor: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct TargetPickerState {
+    pub row: usize,
+    pub cursor: usize,
 }
 
 impl CatalogEditor {
@@ -292,10 +314,47 @@ impl CatalogEditor {
             editing: false,
             buf: String::new(),
             buf_cursor: 0,
+            slot_owner: std::collections::BTreeMap::new(),
+            slot_picker: None,
+            target_picker: None,
         }
     }
 
+    /// Build a `CatalogEditor` seeded from an existing `Provider`: the
+    /// catalog rows, the Default id, and the slot → id bindings.
+    pub fn from_provider(
+        fields: &'static [CatalogField],
+        provider: &crate::store::Provider,
+    ) -> Self {
+        let mut ed = Self::new(fields, provider.catalog.clone(), provider.model.as_deref());
+        for slot in models::CLAUDE_SLOTS {
+            if let Some(id) = provider
+                .slots
+                .get(slot.key)
+                .map(String::as_str)
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                ed.slot_owner.insert(slot.key, id.to_string());
+            }
+        }
+        ed
+    }
+
+    /// Which row currently owns `slot`? Returns the row index, if any.
+    #[allow(dead_code)]
+    pub fn slot_row(&self, slot: &str) -> Option<usize> {
+        let id = self.slot_owner.get(slot)?;
+        self.rows.iter().position(|r| r.id == *id)
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) -> CatalogCmd {
+        if self.slot_picker.is_some() {
+            return self.handle_slot_picker_key(key);
+        }
+        if self.target_picker.is_some() {
+            return self.handle_target_picker_key(key);
+        }
         if self.editing {
             match key.code {
                 KeyCode::Esc => {
@@ -306,63 +365,202 @@ impl CatalogEditor {
                     edit::key(&mut self.buf, &mut self.buf_cursor, key);
                 }
             }
-            CatalogCmd::Continue
-        } else {
-            match key.code {
-                KeyCode::Esc => CatalogCmd::Cancel,
-                KeyCode::Enter if key.modifiers.is_empty() => CatalogCmd::Save,
-                KeyCode::Char('j') | KeyCode::Down => {
-                    if !self.rows.is_empty() {
-                        self.row = (self.row + 1) % self.rows.len();
-                    }
-                    CatalogCmd::Continue
-                }
-                KeyCode::Char('k') | KeyCode::Up => {
-                    if !self.rows.is_empty() {
-                        self.row = (self.row + self.rows.len() - 1) % self.rows.len();
-                    }
-                    CatalogCmd::Continue
-                }
-                KeyCode::Tab | KeyCode::Right => {
-                    if !self.fields.is_empty() {
-                        self.col = (self.col + 1) % self.fields.len();
-                    }
-                    CatalogCmd::Continue
-                }
-                KeyCode::BackTab | KeyCode::Left => {
-                    if !self.fields.is_empty() {
-                        self.col = (self.col + self.fields.len() - 1) % self.fields.len();
-                    }
-                    CatalogCmd::Continue
-                }
-                KeyCode::Char('e') | KeyCode::Char('E') => {
-                    self.begin_edit();
-                    CatalogCmd::Continue
-                }
-                KeyCode::Char('d') | KeyCode::Char('D') => {
-                    if self.row < self.rows.len() {
-                        self.rows.remove(self.row);
-                        if self.default_idx >= self.rows.len() && !self.rows.is_empty() {
-                            self.default_idx = self.rows.len() - 1;
-                        }
-                        self.row = self.row.min(self.rows.len().saturating_sub(1));
-                    }
-                    CatalogCmd::Continue
-                }
-                KeyCode::Char('n') | KeyCode::Char('N') => {
-                    self.rows.push(ModelEntry::default());
-                    self.row = self.rows.len() - 1;
-                    CatalogCmd::Continue
-                }
-                KeyCode::Char('*') => {
-                    if self.row < self.rows.len() {
-                        self.default_idx = self.row;
-                    }
-                    CatalogCmd::Continue
-                }
-                _ => CatalogCmd::Continue,
-            }
+            return CatalogCmd::Continue;
         }
+        match key.code {
+            KeyCode::Esc => CatalogCmd::Cancel,
+            KeyCode::Enter if key.modifiers.is_empty() => CatalogCmd::Save,
+            KeyCode::Char('j') | KeyCode::Down => {
+                if !self.rows.is_empty() {
+                    self.row = (self.row + 1) % self.rows.len();
+                }
+                CatalogCmd::Continue
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if !self.rows.is_empty() {
+                    self.row = (self.row + self.rows.len() - 1) % self.rows.len();
+                }
+                CatalogCmd::Continue
+            }
+            KeyCode::Tab | KeyCode::Right => {
+                if !self.fields.is_empty() {
+                    self.col = (self.col + 1) % self.fields.len();
+                }
+                CatalogCmd::Continue
+            }
+            KeyCode::BackTab | KeyCode::Left => {
+                if !self.fields.is_empty() {
+                    self.col = (self.col + self.fields.len() - 1) % self.fields.len();
+                }
+                CatalogCmd::Continue
+            }
+            KeyCode::Char('e') | KeyCode::Char('E') => {
+                self.begin_edit();
+                CatalogCmd::Continue
+            }
+            KeyCode::Char(' ') => self.handle_space(),
+            KeyCode::Char('d') | KeyCode::Char('D') => {
+                self.delete_row();
+                CatalogCmd::Continue
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') => {
+                self.rows.push(ModelEntry::default());
+                self.row = self.rows.len() - 1;
+                CatalogCmd::Continue
+            }
+            KeyCode::Char('*') => {
+                if self.row < self.rows.len() {
+                    self.default_idx = self.row;
+                }
+                CatalogCmd::Continue
+            }
+            _ => CatalogCmd::Continue,
+        }
+    }
+
+    fn handle_space(&mut self) -> CatalogCmd {
+        let Some(field) = self.fields.get(self.col).copied() else {
+            return CatalogCmd::Continue;
+        };
+        match field {
+            CatalogField::TargetModelId => {
+                // Open the target-model-id picker. Cursor parks on the
+                // current value if any, else the first known id.
+                if self.row < self.rows.len() {
+                    let cursor = self
+                        .rows
+                        .get(self.row)
+                        .and_then(|r| r.target_model_id.as_deref())
+                        .and_then(|tid| {
+                            models::KNOWN_CLAUDE_MODEL_IDS
+                                .iter()
+                                .position(|k| *k == tid)
+                        })
+                        .map(|i| i + 1) // +1 because index 0 is "(none)"
+                        .unwrap_or(0);
+                    self.target_picker = Some(TargetPickerState {
+                        row: self.row,
+                        cursor,
+                    });
+                }
+                CatalogCmd::Continue
+            }
+            CatalogField::Slots => {
+                if self.row < self.rows.len() {
+                    self.slot_picker = Some(SlotPickerState {
+                        row: self.row,
+                        cursor: 0,
+                    });
+                }
+                CatalogCmd::Continue
+            }
+            _ => CatalogCmd::Continue,
+        }
+    }
+
+    fn handle_target_picker_key(&mut self, key: KeyEvent) -> CatalogCmd {
+        // Item 0 is "(none)"; items 1..=N are KNOWN_CLAUDE_MODEL_IDS.
+        let total = models::KNOWN_CLAUDE_MODEL_IDS.len() + 1;
+        match key.code {
+            KeyCode::Esc => {
+                self.target_picker = None;
+            }
+            KeyCode::Enter => {
+                let Some(picker) = self.target_picker.as_ref() else {
+                    return CatalogCmd::Continue;
+                };
+                let cursor = picker.cursor;
+                let row_idx = picker.row;
+                let chosen: Option<String> = if cursor == 0 {
+                    None
+                } else {
+                    models::KNOWN_CLAUDE_MODEL_IDS
+                        .get(cursor - 1)
+                        .map(|s| s.to_string())
+                };
+                if let Some(row) = self.rows.get_mut(row_idx) {
+                    row.target_model_id = chosen;
+                }
+                self.target_picker = None;
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                if let Some(p) = self.target_picker.as_mut() {
+                    p.cursor = (p.cursor + 1) % total;
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if let Some(p) = self.target_picker.as_mut() {
+                    p.cursor = (p.cursor + total - 1) % total;
+                }
+            }
+            _ => {}
+        }
+        CatalogCmd::Continue
+    }
+
+    fn handle_slot_picker_key(&mut self, key: KeyEvent) -> CatalogCmd {
+        let slots = models::CLAUDE_SLOTS;
+        // `picker` is the current state — re-borrow every time we mutate it
+        // to avoid overlapping mutable borrows.
+        match key.code {
+            KeyCode::Esc => {
+                self.slot_picker = None;
+            }
+            KeyCode::Enter => {
+                let Some(picker) = self.slot_picker.as_ref() else {
+                    return CatalogCmd::Continue;
+                };
+                let cursor = picker.cursor;
+                let row_idx = picker.row;
+                let Some(slot) = slots.get(cursor) else {
+                    self.slot_picker = None;
+                    return CatalogCmd::Continue;
+                };
+                let row_id = self
+                    .rows
+                    .get(row_idx)
+                    .map(|r| r.id.clone())
+                    .unwrap_or_default();
+                if row_id.is_empty() {
+                    self.slot_picker = None;
+                    return CatalogCmd::Continue;
+                }
+                if self.slot_owner.get(slot.key).map(String::as_str) == Some(&row_id) {
+                    self.slot_owner.remove(slot.key);
+                } else {
+                    // "搬家": steal the slot from any other row.
+                    self.slot_owner.insert(slot.key, row_id);
+                }
+                // Close the popover after a selection.
+                self.slot_picker = None;
+            }
+            KeyCode::Char('j') | KeyCode::Down => {
+                if let Some(p) = self.slot_picker.as_mut() {
+                    p.cursor = (p.cursor + 1) % slots.len();
+                }
+            }
+            KeyCode::Char('k') | KeyCode::Up => {
+                if let Some(p) = self.slot_picker.as_mut() {
+                    p.cursor = (p.cursor + slots.len() - 1) % slots.len();
+                }
+            }
+            _ => {}
+        }
+        CatalogCmd::Continue
+    }
+
+    fn delete_row(&mut self) {
+        if self.row >= self.rows.len() {
+            return;
+        }
+        let id = self.rows[self.row].id.clone();
+        self.rows.remove(self.row);
+        // Drop any slot bindings that pointed at the deleted row.
+        self.slot_owner.retain(|_, v| *v != id);
+        if self.default_idx >= self.rows.len() && !self.rows.is_empty() {
+            self.default_idx = self.rows.len() - 1;
+        }
+        self.row = self.row.min(self.rows.len().saturating_sub(1));
     }
 
     fn begin_edit(&mut self) {
@@ -372,6 +570,14 @@ impl CatalogEditor {
         let Some(field) = self.fields.get(self.col) else {
             return;
         };
+        match field {
+            CatalogField::Slots | CatalogField::TargetModelId => {
+                // Non-text fields use space/enter, not inline editing.
+                let _ = self.handle_space();
+                return;
+            }
+            _ => {}
+        }
         self.buf_cursor = 0;
         self.buf = match field {
             CatalogField::Id => row.id.clone(),
@@ -381,6 +587,7 @@ impl CatalogEditor {
                 .map(|n| n.to_string())
                 .unwrap_or_default(),
             CatalogField::MaxTokens => row.max_tokens.map(|n| n.to_string()).unwrap_or_default(),
+            CatalogField::Slots | CatalogField::TargetModelId => String::new(),
         };
         self.buf_cursor = edit::len(&self.buf);
         self.editing = true;
@@ -410,6 +617,7 @@ impl CatalogEditor {
             CatalogField::MaxTokens => {
                 row.max_tokens = v.parse().ok();
             }
+            CatalogField::Slots | CatalogField::TargetModelId => {}
         }
     }
 
@@ -426,6 +634,22 @@ impl CatalogEditor {
                     .find(|s| !s.is_empty())
                     .map(str::to_string)
             })
+    }
+
+    /// Build the `Provider.{model, slots}` projection from the current
+    /// catalog state. Called on save.
+    #[allow(dead_code)]
+    pub fn project_to_provider(&self, p: &mut crate::store::Provider) {
+        p.catalog = self.rows.clone();
+        p.model = self.default_id();
+        p.slots = std::collections::BTreeMap::new();
+        for (slot, id) in &self.slot_owner {
+            if let Some(r) = self.rows.iter().find(|r| &r.id == id) {
+                if !r.id.trim().is_empty() {
+                    p.slots.insert(slot.to_string(), id.clone());
+                }
+            }
+        }
     }
 }
 
@@ -579,6 +803,8 @@ pub fn field_label(field: CatalogField) -> &'static str {
         CatalogField::Label => t("field.label"),
         CatalogField::ContextWindow => t("field.context_window"),
         CatalogField::MaxTokens => t("field.max_tokens"),
+        CatalogField::Slots => t("field.slot_assignment"),
+        CatalogField::TargetModelId => t("field.model_overrides"),
     }
 }
 
@@ -669,6 +895,7 @@ mod tests {
             label: Some("B".into()),
             context_window: Some(200_000),
             max_tokens: None,
+            target_model_id: None,
         };
         let mut p = ModelPicker::with_preselect(
             PickerKind::Catalog,
@@ -749,5 +976,191 @@ mod tests {
         ed.handle_key(key(KeyCode::Char('d')));
         assert_eq!(ed.rows.len(), 1);
         assert_eq!(ed.default_id().as_deref(), Some("gpt-4o"));
+    }
+
+    fn claude_editor_with(rows: Vec<ModelEntry>, default: &str) -> CatalogEditor {
+        let mut p = Provider::blank(AppId::Claude);
+        p.id = "p".into();
+        p.name = "P".into();
+        p.base_url = "https://x".into();
+        p.api_key = "sk".into();
+        p.model = Some(default.into());
+        p.catalog = rows;
+        CatalogEditor::from_provider(crate::adapter::models::CLAUDE_FIELDS, &p)
+    }
+
+    fn focus_field(ed: &mut CatalogEditor, field: CatalogField) {
+        let col = ed.fields.iter().position(|f| *f == field).unwrap();
+        ed.col = col;
+    }
+
+    #[test]
+    fn claude_slot_assignment_steals() {
+        let mut ed = claude_editor_with(
+            vec![
+                ModelEntry {
+                    id: "a".into(),
+                    ..ModelEntry::default()
+                },
+                ModelEntry {
+                    id: "b".into(),
+                    ..ModelEntry::default()
+                },
+            ],
+            "a",
+        );
+        // Open the popover on row 1 (non-default) and assign sonnet.
+        ed.row = 1;
+        focus_field(&mut ed, CatalogField::Slots);
+        ed.handle_key(key(KeyCode::Char(' ')));
+        assert!(ed.slot_picker.is_some());
+        // cursor starts at haiku (0). sonnet is index 1.
+        ed.handle_key(key(KeyCode::Char('j')));
+        ed.handle_key(key(KeyCode::Enter));
+        assert_eq!(ed.slot_owner.get("sonnet").map(String::as_str), Some("b"));
+        assert!(ed.slot_picker.is_none());
+
+        // Reassign sonnet to a -> b is evicted.
+        ed.row = 0;
+        focus_field(&mut ed, CatalogField::Slots);
+        ed.handle_key(key(KeyCode::Char(' ')));
+        ed.handle_key(key(KeyCode::Char('j')));
+        ed.handle_key(key(KeyCode::Enter));
+        assert_eq!(ed.slot_owner.get("sonnet").map(String::as_str), Some("a"));
+    }
+
+    #[test]
+    fn target_picker_picks_known_id_and_lands_on_existing() {
+        // Opening the target picker on a row that already has a known target
+        // lands the cursor on that target (offset by 1 for the "(none)" entry).
+        let mut ed = claude_editor_with(
+            vec![
+                ModelEntry {
+                    id: "a".into(),
+                    target_model_id: Some("claude-sonnet-4-6".into()),
+                    ..ModelEntry::default()
+                },
+                ModelEntry {
+                    id: "b".into(),
+                    ..ModelEntry::default()
+                },
+            ],
+            "a",
+        );
+        focus_field(&mut ed, CatalogField::TargetModelId);
+        // Open on row 0 (already has claude-sonnet-4-6).
+        ed.row = 0;
+        ed.handle_key(key(KeyCode::Char(' ')));
+        let p = ed.target_picker.as_ref().expect("picker open");
+        // index 0 in KNOWN is "claude-haiku-3-5"; claude-sonnet-4-6 is
+        // further down — the exact index doesn't matter; just confirm
+        // it's not the default 0.
+        assert!(p.cursor > 0);
+
+        // Pick the first known id (cursor 1 → KNOWN[0]).
+        ed.target_picker.as_mut().unwrap().cursor = 1;
+        ed.handle_key(key(KeyCode::Enter));
+        assert_eq!(
+            ed.rows[0].target_model_id.as_deref(),
+            Some("claude-haiku-3-5")
+        );
+        assert!(ed.target_picker.is_none());
+    }
+
+    #[test]
+    fn target_picker_clears_with_none_entry() {
+        let mut ed = claude_editor_with(
+            vec![ModelEntry {
+                id: "a".into(),
+                target_model_id: Some("claude-opus-4-7".into()),
+                ..ModelEntry::default()
+            }],
+            "a",
+        );
+        focus_field(&mut ed, CatalogField::TargetModelId);
+        ed.handle_key(key(KeyCode::Char(' ')));
+        // Cursor 0 in the picker = "(none)".
+        ed.target_picker.as_mut().unwrap().cursor = 0;
+        ed.handle_key(key(KeyCode::Enter));
+        assert!(ed.rows[0].target_model_id.is_none());
+    }
+
+    #[test]
+    fn target_picker_esc_cancels() {
+        let mut ed = claude_editor_with(
+            vec![ModelEntry {
+                id: "a".into(),
+                target_model_id: Some("claude-sonnet-4-6".into()),
+                ..ModelEntry::default()
+            }],
+            "a",
+        );
+        focus_field(&mut ed, CatalogField::TargetModelId);
+        ed.handle_key(key(KeyCode::Char(' ')));
+        assert!(ed.target_picker.is_some());
+        ed.handle_key(key(KeyCode::Esc));
+        assert!(ed.target_picker.is_none());
+        // Original value preserved.
+        assert_eq!(
+            ed.rows[0].target_model_id.as_deref(),
+            Some("claude-sonnet-4-6")
+        );
+    }
+
+    #[test]
+    fn project_to_provider_writes_model_and_slots() {
+        let mut ed = claude_editor_with(
+            vec![
+                ModelEntry {
+                    id: "a".into(),
+                    ..ModelEntry::default()
+                },
+                ModelEntry {
+                    id: "b".into(),
+                    ..ModelEntry::default()
+                },
+            ],
+            "a",
+        );
+        ed.row = 1;
+        focus_field(&mut ed, CatalogField::Slots);
+        ed.handle_key(key(KeyCode::Char(' ')));
+        ed.handle_key(key(KeyCode::Char('j')));
+        ed.handle_key(key(KeyCode::Enter));
+
+        let mut p = Provider::blank(AppId::Claude);
+        ed.project_to_provider(&mut p);
+        assert_eq!(p.model.as_deref(), Some("a"));
+        assert_eq!(p.slots.get("sonnet").map(String::as_str), Some("b"));
+        // other slots not assigned
+        assert!(!p.slots.contains_key("haiku"));
+    }
+
+    #[test]
+    fn delete_row_drops_slot_bindings() {
+        let mut ed = claude_editor_with(
+            vec![
+                ModelEntry {
+                    id: "a".into(),
+                    ..ModelEntry::default()
+                },
+                ModelEntry {
+                    id: "b".into(),
+                    ..ModelEntry::default()
+                },
+            ],
+            "a",
+        );
+        ed.row = 1;
+        focus_field(&mut ed, CatalogField::Slots);
+        ed.handle_key(key(KeyCode::Char(' ')));
+        ed.handle_key(key(KeyCode::Char('j')));
+        ed.handle_key(key(KeyCode::Enter));
+        assert_eq!(ed.slot_owner.get("sonnet").map(String::as_str), Some("b"));
+
+        ed.row = 1;
+        ed.handle_key(key(KeyCode::Char('d')));
+        assert_eq!(ed.slot_owner.get("sonnet"), None);
+        assert_eq!(ed.rows.len(), 1);
     }
 }

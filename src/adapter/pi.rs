@@ -180,6 +180,7 @@ impl AgentAdapter for PiAdapter {
                             label: r.label,
                             context_window: r.context_window,
                             max_tokens: r.max_tokens,
+                            target_model_id: None,
                         })
                         .collect()
                 })
@@ -682,6 +683,7 @@ mod tests {
             label: Some("One".into()),
             context_window: Some(10),
             max_tokens: Some(2),
+            target_model_id: None,
         }];
         PiAdapter.apply(&paths, &p).unwrap();
         let models = &read_value(&live)["providers"]["PackyCode"]["models"];

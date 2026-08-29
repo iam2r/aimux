@@ -442,10 +442,17 @@ impl App {
                 let mut tmp = crate::store::Provider::blank(app);
                 tmp.model = default.clone();
                 tmp.catalog = form.catalog.clone();
+                tmp.slots = form.slots.clone();
                 let rows = crate::adapter::models::catalog_models(&tmp);
-                self.overlay = Overlay::CatalogEditor {
-                    editor: CatalogEditor::new(fields, rows, default.as_deref()),
+                // For Claude (and any other app with a slot-bearing catalog),
+                // `from_provider` carries the slot-to-id bindings through the
+                // editor. For OpenCode/Pi/Codex, `slot_owner` stays empty.
+                let editor = if matches!(app, AppId::Claude) {
+                    CatalogEditor::from_provider(fields, &tmp)
+                } else {
+                    CatalogEditor::new(fields, rows, default.as_deref())
                 };
+                self.overlay = Overlay::CatalogEditor { editor };
             }
             crate::adapter::models::ModelUi::Slots { .. } => {
                 let default = form
@@ -915,8 +922,18 @@ impl App {
             .cloned()
             .collect();
         let default_id = editor.default_id();
+        let slot_owner = editor.slot_owner.clone();
         if let Some(form) = self.held_form.as_mut() {
             form.catalog = rows;
+            // Project slot_owner into form.slots. We only copy bindings
+            // whose target id still exists in the saved catalog.
+            let ids: std::collections::BTreeSet<&str> =
+                form.catalog.iter().map(|r| r.id.as_str()).collect();
+            form.slots = slot_owner
+                .into_iter()
+                .filter(|(_, id)| ids.contains(id.as_str()))
+                .map(|(k, id)| (k.to_string(), id))
+                .collect();
             if let Some(mid) = default_id {
                 if let Some(f) = form
                     .fields
@@ -1799,7 +1816,9 @@ mod tests {
     }
 
     #[test]
-    fn form_models_field_opens_slots() {
+    fn form_models_field_opens_editor() {
+        // Claude's `models` field now opens the CatalogEditor (not the
+        // SlotEditor). For codex/pi/opencode it's still the model picker.
         let td = tempfile::tempdir().unwrap();
         let paths = Paths::for_test(td.path());
         let mut app = sample(paths);
@@ -1815,7 +1834,11 @@ mod tests {
                 .expect("models");
         }
         app.handle_form_key(key(KeyCode::Char(' ')));
-        assert!(matches!(app.overlay, Overlay::SlotEditor { .. }));
+        // The overlay is either CatalogEditor (Claude) or the picker (others).
+        assert!(matches!(
+            app.overlay,
+            Overlay::CatalogEditor { .. } | Overlay::ModelPicker { .. }
+        ));
         app.handle_key(key(KeyCode::Esc));
         assert!(matches!(app.overlay, Overlay::Form(_)));
     }

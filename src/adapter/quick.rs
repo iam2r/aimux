@@ -48,6 +48,12 @@ pub const CLAUDE: &[QuickItem] = &[
         snippet: Some(r#"{"env":{"DISABLE_AUTOUPDATER":"1"}}"#),
         extra_key: None,
     },
+    QuickItem {
+        id: "unknown_model_reactive",
+        label: "quick.unknown_model_reactive",
+        snippet: Some(r#"{"env":{"CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT":"1"}}"#),
+        extra_key: None,
+    },
 ];
 
 pub const CODEX: &[QuickItem] = &[
@@ -166,6 +172,23 @@ mod tests {
         item.remove_snippet(&mut snippet);
         assert_eq!(snippet["env"]["FOO"], "bar");
         assert!(snippet["env"].get("ENABLE_TOOL_SEARCH").is_none());
+    }
+
+    #[test]
+    fn unknown_model_reactive_sets_enforcement_off() {
+        let mut snippet = json!({});
+        let item = CLAUDE
+            .iter()
+            .find(|i| i.id == "unknown_model_reactive")
+            .unwrap();
+        assert!(!item.snippet_on(&snippet));
+        item.apply_snippet(&mut snippet);
+        assert_eq!(
+            snippet["env"]["CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT"],
+            "1"
+        );
+        item.remove_snippet(&mut snippet);
+        assert!(snippet.get("env").is_none());
     }
 
     #[test]

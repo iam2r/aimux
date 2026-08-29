@@ -13,6 +13,13 @@ pub enum CatalogField {
     Label,
     ContextWindow,
     MaxTokens,
+    /// Claude-only: a multi-select popover of the 5 Claude slot aliases
+    /// (haiku/sonnet/opus/fable/subagent) that this row is assigned to.
+    Slots,
+    /// Claude-only: the Anthropic model ID this row proxies, picked from
+    /// [`KNOWN_CLAUDE_MODEL_IDS`]. Drives `modelOverrides` and the
+    /// `ANTHROPIC_DEFAULT_*_MODEL` env values when this row owns slots.
+    TargetModelId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,8 +31,16 @@ pub struct SlotSpec {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ModelUi {
-    Catalog { fields: &'static [CatalogField] },
-    Slots { slots: &'static [SlotSpec] },
+    Catalog {
+        fields: &'static [CatalogField],
+    },
+    /// Reserved for future apps that need an explicit slot UI. Currently
+    /// unused now that Claude has migrated to catalog. The form/app match
+    /// arms still cover it defensively.
+    #[allow(dead_code)]
+    Slots {
+        slots: &'static [SlotSpec],
+    },
 }
 
 pub const OPENCODE_FIELDS: &[CatalogField] = &[
@@ -33,6 +48,51 @@ pub const OPENCODE_FIELDS: &[CatalogField] = &[
     CatalogField::Label,
     CatalogField::ContextWindow,
     CatalogField::MaxTokens,
+];
+
+/// Anthropic model IDs recognised by the installed Claude Code (v2.1.251).
+///
+/// `modelOverrides` keys must be one of these (per Claude Code's docs:
+/// "Keys must be exact Anthropic model IDs… unknown keys are ignored.").
+/// A row's `target_model_id` is only consulted when it appears in this list;
+/// otherwise the row behaves as a plain unknown proxy id and Claude Code
+/// prints its "unrecognised model" warning.
+///
+/// Sourced from `/home/razo/.local/share/claude/versions/2.1.251` — the
+/// `id` field of every entry in the `so` model table (the same table the
+/// CLI's `ef`/`yMe` rewrite helpers consume). New Claude Code releases may
+/// add IDs; keep this list in sync.
+pub const KNOWN_CLAUDE_MODEL_IDS: &[&str] = &[
+    "claude-haiku-3-5",
+    "claude-haiku-4-5",
+    "claude-haiku-4-5-20251001",
+    "claude-sonnet-3-7",
+    "claude-sonnet-4-0",
+    "claude-sonnet-4-20250514",
+    "claude-sonnet-4-5",
+    "claude-sonnet-4-5-20250929",
+    "claude-sonnet-4-6",
+    "claude-opus-4-0",
+    "claude-opus-4-1",
+    "claude-opus-4-1-20250805",
+    "claude-opus-4-20250514",
+    "claude-opus-4-5",
+    "claude-opus-4-5-20251101",
+    "claude-opus-4-6",
+    "claude-opus-4-7",
+    "claude-opus-4-8",
+];
+
+pub fn is_known_claude_model_id(id: &str) -> bool {
+    KNOWN_CLAUDE_MODEL_IDS.contains(&id)
+}
+
+pub const CLAUDE_FIELDS: &[CatalogField] = &[
+    CatalogField::Id,
+    CatalogField::Label,
+    CatalogField::ContextWindow,
+    CatalogField::Slots,
+    CatalogField::TargetModelId,
 ];
 
 pub const PI_FIELDS: &[CatalogField] = OPENCODE_FIELDS;

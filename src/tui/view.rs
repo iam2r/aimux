@@ -413,6 +413,8 @@ fn catalog_cell_text(
         crate::adapter::models::CatalogField::MaxTokens => {
             row.max_tokens.map(|n| n.to_string()).unwrap_or_default()
         }
+        crate::adapter::models::CatalogField::Slots
+        | crate::adapter::models::CatalogField::TargetModelId => String::new(),
     }
 }
 
@@ -700,6 +702,7 @@ mod tests {
                     label: Some("Opus 4.5".into()),
                     context_window: Some(200000),
                     max_tokens: Some(32000),
+                    target_model_id: None,
                 }],
                 None,
             )

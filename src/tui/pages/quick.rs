@@ -173,7 +173,8 @@ mod tests {
     #[test]
     fn claude_checkboxes_then_json() {
         let mut page = SnippetPage::open(AppId::Claude, None, Default::default());
-        assert_eq!(page.items().len(), 5);
+        // 5 originals + unknown_model_reactive = 6.
+        assert_eq!(page.items().len(), 6);
         assert_eq!(page.syntax, SnippetSyntax::Json);
         assert!(!page.json_focused());
         page.handle_key(key(KeyCode::Tab));

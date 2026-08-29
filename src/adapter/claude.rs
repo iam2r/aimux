@@ -181,8 +181,8 @@ impl AgentAdapter for ClaudeAdapter {
     }
 
     fn model_ui(&self) -> super::models::ModelUi {
-        super::models::ModelUi::Slots {
-            slots: super::models::CLAUDE_SLOTS,
+        super::models::ModelUi::Catalog {
+            fields: super::models::CLAUDE_FIELDS,
         }
     }
 
@@ -219,12 +219,14 @@ fn patch_claude_env(doc: &mut Value, provider: &Provider) -> Result<()> {
             "ANTHROPIC_AUTH_TOKEN",
             "ANTHROPIC_API_KEY",
             "ANTHROPIC_MODEL",
+            "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
         ] {
             json_remove(doc, &["env", key])?;
         }
         for slot in super::models::CLAUDE_SLOTS {
             json_remove(doc, &["env", slot.env_key])?;
         }
+        json_remove(doc, &["modelOverrides"])?;
         return Ok(());
     }
 
@@ -244,12 +246,28 @@ fn patch_claude_env(doc: &mut Value, provider: &Provider) -> Result<()> {
         json_remove(doc, &["env", "ANTHROPIC_API_KEY"])?;
     }
 
+    // Helper: a slot env value (or ANTHROPIC_MODEL). If the bound row has a
+    // `target_model_id` that Claude Code recognises, route through the
+    // Anthropic ID and let `modelOverrides` translate the actual id later.
+    // Otherwise write the proxy id directly (the unknown-model warning path).
+    let resolve_id = |row_id: &str| -> String {
+        let trimmed = row_id.trim();
+        provider
+            .catalog
+            .iter()
+            .find(|m| m.id.trim() == trimmed)
+            .and_then(|m| m.target_model_id.as_deref())
+            .map(str::trim)
+            .filter(|tid| !tid.is_empty() && super::models::is_known_claude_model_id(tid))
+            .map(str::to_string)
+            .unwrap_or_else(|| trimmed.to_string())
+    };
+
     match &provider.model {
-        Some(model) => json_set(
-            doc,
-            &["env", "ANTHROPIC_MODEL"],
-            Value::String(model.clone()),
-        )?,
+        Some(model) => {
+            let resolved = resolve_id(model);
+            json_set(doc, &["env", "ANTHROPIC_MODEL"], Value::String(resolved))?;
+        }
         None => json_remove(doc, &["env", "ANTHROPIC_MODEL"])?,
     }
     for slot in super::models::CLAUDE_SLOTS {
@@ -260,10 +278,56 @@ fn patch_claude_env(doc: &mut Value, provider: &Provider) -> Result<()> {
             .map(str::trim)
             .filter(|s| !s.is_empty())
         {
-            Some(id) => json_set(doc, &["env", slot.env_key], Value::String(id.to_string()))?,
+            Some(id) => {
+                let resolved = resolve_id(id);
+                json_set(doc, &["env", slot.env_key], Value::String(resolved))?
+            }
             None => json_remove(doc, &["env", slot.env_key])?,
         }
     }
+
+    // `CLAUDE_CODE_MAX_CONTEXT_TOKENS`: min over all catalog rows with a
+    // non-empty `context_window`. None/all-empty → key absent.
+    let min_window = provider
+        .catalog
+        .iter()
+        .filter_map(|m| m.context_window)
+        .min();
+    match min_window {
+        Some(w) => json_set(
+            doc,
+            &["env", "CLAUDE_CODE_MAX_CONTEXT_TOKENS"],
+            Value::String(w.to_string()),
+        )?,
+        None => json_remove(doc, &["env", "CLAUDE_CODE_MAX_CONTEXT_TOKENS"])?,
+    }
+
+    // `modelOverrides`: one entry per catalog row whose `target_model_id`
+    // is in `KNOWN_CLAUDE_MODEL_IDS`. Key is the Anthropic ID (so Claude
+    // Code accepts it); value is the row's actual proxy id. Rows without
+    // a valid target model id are skipped — they stay plain unknown ids.
+    let mut overrides = serde_json::Map::new();
+    for row in &provider.catalog {
+        let Some(target) = row.target_model_id.as_deref().map(str::trim) else {
+            continue;
+        };
+        if !super::models::is_known_claude_model_id(target) {
+            continue;
+        }
+        let row_id = row.id.trim();
+        if row_id.is_empty() {
+            continue;
+        }
+        // Last-wins on duplicate targets across rows; matches the natural
+        // "later row overrides earlier" reading of a catalog.
+        overrides.insert(target.to_string(), Value::String(row_id.to_string()));
+    }
+    if overrides.is_empty() {
+        json_remove(doc, &["modelOverrides"])?;
+    } else {
+        json_set(doc, &["modelOverrides"], Value::Object(overrides))?;
+    }
+
     Ok(())
 }
 
@@ -292,6 +356,7 @@ mod tests {
     use super::*;
     use crate::adapter::{get, registry};
     use crate::store::AppId;
+    use crate::store::ModelEntry;
     use std::collections::BTreeMap;
     use std::path::Path;
 
@@ -357,7 +422,7 @@ mod tests {
         let live = paths.claude_dir.join("settings.json");
         fs::write(
             &live,
-            r#"{"env":{"ANTHROPIC_BASE_URL":"https://third.party","ANTHROPIC_AUTH_TOKEN":"sk-x","OTHER":"keep"}}"#,
+            r#"{"env":{"ANTHROPIC_BASE_URL":"https://third.party","ANTHROPIC_AUTH_TOKEN":"sk-x","CLAUDE_CODE_MAX_CONTEXT_TOKENS":"999","OTHER":"keep"},"modelOverrides":{"haiku":"x"}}"#,
         )
         .unwrap();
         let official = crate::store::official_provider(AppId::Claude).unwrap();
@@ -368,10 +433,15 @@ mod tests {
             "ANTHROPIC_AUTH_TOKEN",
             "ANTHROPIC_API_KEY",
             "ANTHROPIC_MODEL",
+            "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
             "CLAUDE_CODE_SUBAGENT_MODEL",
         ] {
             assert!(got["env"].get(key).is_none(), "{key} should be stripped");
         }
+        assert!(
+            got.get("modelOverrides").is_none(),
+            "modelOverrides should be stripped"
+        );
         assert_eq!(got["env"]["OTHER"], "keep"); // unrelated keys survive
 
         // Switching back to a third-party provider writes its env again.
@@ -689,5 +759,197 @@ mod tests {
         assert_eq!(a.display_name(), "Claude");
         assert_eq!(a.fields().len(), 5);
         assert!(registry().iter().any(|x| x.id() == AppId::Claude));
+    }
+
+    #[allow(dead_code)]
+    fn provider_with_catalog(catalog: Vec<ModelEntry>) -> Provider {
+        let mut p = provider(None);
+        p.catalog = catalog;
+        p
+    }
+
+    #[test]
+    fn max_context_tokens_min_over_catalog() {
+        let (_td, paths) = setup();
+        fs::create_dir_all(&paths.claude_dir).unwrap();
+        let mut p = provider(Some("m"));
+        p.catalog = vec![
+            ModelEntry {
+                id: "m".into(),
+                context_window: Some(200_000),
+                target_model_id: None,
+                ..ModelEntry::default()
+            },
+            ModelEntry {
+                id: "x".into(),
+                context_window: Some(1_000_000),
+                target_model_id: None,
+                ..ModelEntry::default()
+            },
+            ModelEntry {
+                id: "y".into(),
+                context_window: None, // ignored
+                target_model_id: None,
+                ..ModelEntry::default()
+            },
+        ];
+        ClaudeAdapter.apply(&paths, &p).unwrap();
+        let doc = read_value(&paths.claude_dir.join("settings.json"));
+        assert_eq!(doc["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "200000");
+    }
+
+    #[test]
+    fn max_context_tokens_absent_when_catalog_empty() {
+        let (_td, paths) = setup();
+        fs::create_dir_all(&paths.claude_dir).unwrap();
+        ClaudeAdapter.apply(&paths, &provider(None)).unwrap();
+        let doc = read_value(&paths.claude_dir.join("settings.json"));
+        assert!(doc["env"].get("CLAUDE_CODE_MAX_CONTEXT_TOKENS").is_none());
+    }
+
+    #[test]
+    fn target_model_id_writes_anthropic_id_for_known_targets() {
+        // Row x is the default AND has target_model_id = claude-sonnet-4-6.
+        // ANTHROPIC_MODEL is rewritten to the Anthropic ID, and the
+        // modelOverrides entry maps that Anthropic ID back to the proxy id.
+        let (_td, paths) = setup();
+        fs::create_dir_all(&paths.claude_dir).unwrap();
+        let mut p = provider(Some("x"));
+        p.catalog = vec![ModelEntry {
+            id: "x".into(),
+            context_window: None,
+            target_model_id: Some("claude-sonnet-4-6".into()),
+            ..ModelEntry::default()
+        }];
+        ClaudeAdapter.apply(&paths, &p).unwrap();
+        let doc = read_value(&paths.claude_dir.join("settings.json"));
+        assert_eq!(doc["env"]["ANTHROPIC_MODEL"], "claude-sonnet-4-6");
+        assert_eq!(doc["modelOverrides"]["claude-sonnet-4-6"], "x");
+    }
+
+    #[test]
+    fn slot_env_uses_target_model_id_when_known() {
+        // Row "x" is bound to sonnet+opus; its target is claude-opus-4-7.
+        // Each slot env value becomes the Anthropic ID; modelOverrides
+        // is keyed by that ID.
+        let (_td, paths) = setup();
+        fs::create_dir_all(&paths.claude_dir).unwrap();
+        let mut p = provider(None);
+        p.slots.insert("sonnet".into(), "x".into());
+        p.slots.insert("opus".into(), "x".into());
+        p.catalog = vec![ModelEntry {
+            id: "x".into(),
+            context_window: None,
+            target_model_id: Some("claude-opus-4-7".into()),
+            ..ModelEntry::default()
+        }];
+        ClaudeAdapter.apply(&paths, &p).unwrap();
+        let doc = read_value(&paths.claude_dir.join("settings.json"));
+        assert_eq!(
+            doc["env"]["ANTHROPIC_DEFAULT_SONNET_MODEL"],
+            "claude-opus-4-7"
+        );
+        assert_eq!(
+            doc["env"]["ANTHROPIC_DEFAULT_OPUS_MODEL"],
+            "claude-opus-4-7"
+        );
+        assert_eq!(doc["modelOverrides"]["claude-opus-4-7"], "x");
+    }
+
+    #[test]
+    fn unknown_target_model_id_falls_back_to_proxy_id() {
+        // target_model_id is a string but not in KNOWN_CLAUDE_MODEL_IDS —
+        // the env value should stay as the proxy id, and modelOverrides
+        // must NOT include the entry (unknown keys are ignored by Claude
+        // Code, and writing them is just dead config).
+        let (_td, paths) = setup();
+        fs::create_dir_all(&paths.claude_dir).unwrap();
+        let mut p = provider(Some("x"));
+        p.catalog = vec![ModelEntry {
+            id: "x".into(),
+            context_window: None,
+            target_model_id: Some("totally-made-up-id".into()),
+            ..ModelEntry::default()
+        }];
+        ClaudeAdapter.apply(&paths, &p).unwrap();
+        let doc = read_value(&paths.claude_dir.join("settings.json"));
+        assert_eq!(doc["env"]["ANTHROPIC_MODEL"], "x");
+        assert!(doc.get("modelOverrides").is_none());
+    }
+
+    #[test]
+    fn model_overrides_absent_when_no_target_set() {
+        let (_td, paths) = setup();
+        fs::create_dir_all(&paths.claude_dir).unwrap();
+        let mut p = provider(Some("x"));
+        p.slots.insert("haiku".into(), "x".into());
+        p.catalog = vec![ModelEntry {
+            id: "x".into(),
+            context_window: None,
+            target_model_id: None,
+            ..ModelEntry::default()
+        }];
+        ClaudeAdapter.apply(&paths, &p).unwrap();
+        let doc = read_value(&paths.claude_dir.join("settings.json"));
+        // ANTHROPIC_MODEL and slot env fall back to the proxy id;
+        // modelOverrides stays absent.
+        assert_eq!(doc["env"]["ANTHROPIC_MODEL"], "x");
+        assert_eq!(doc["env"]["ANTHROPIC_DEFAULT_HAIKU_MODEL"], "x");
+        assert!(doc.get("modelOverrides").is_none());
+    }
+
+    #[test]
+    fn model_overrides_one_entry_per_known_target() {
+        // Two rows with different known targets → two modelOverrides keys.
+        let (_td, paths) = setup();
+        fs::create_dir_all(&paths.claude_dir).unwrap();
+        let mut p = provider(Some("a"));
+        p.slots.insert("haiku".into(), "b".into());
+        p.catalog = vec![
+            ModelEntry {
+                id: "a".into(),
+                context_window: None,
+                target_model_id: Some("claude-sonnet-4-6".into()),
+                ..ModelEntry::default()
+            },
+            ModelEntry {
+                id: "b".into(),
+                context_window: None,
+                target_model_id: Some("claude-opus-4-7".into()),
+                ..ModelEntry::default()
+            },
+        ];
+        ClaudeAdapter.apply(&paths, &p).unwrap();
+        let doc = read_value(&paths.claude_dir.join("settings.json"));
+        assert_eq!(doc["modelOverrides"]["claude-sonnet-4-6"], "a");
+        assert_eq!(doc["modelOverrides"]["claude-opus-4-7"], "b");
+        assert_eq!(doc["env"]["ANTHROPIC_MODEL"], "claude-sonnet-4-6");
+        assert_eq!(
+            doc["env"]["ANTHROPIC_DEFAULT_HAIKU_MODEL"],
+            "claude-opus-4-7"
+        );
+    }
+
+    #[test]
+    fn max_context_tokens_stripped_when_switching_back() {
+        // After a third-party provider with MAX_CONTEXT_TOKENS, switching
+        // back to a clean third-party provider without one removes the key.
+        let (_td, paths) = setup();
+        fs::create_dir_all(&paths.claude_dir).unwrap();
+        let mut p1 = provider(Some("m"));
+        p1.catalog = vec![ModelEntry {
+            id: "m".into(),
+            context_window: Some(500_000),
+            target_model_id: None,
+            ..ModelEntry::default()
+        }];
+        ClaudeAdapter.apply(&paths, &p1).unwrap();
+        let doc1 = read_value(&paths.claude_dir.join("settings.json"));
+        assert_eq!(doc1["env"]["CLAUDE_CODE_MAX_CONTEXT_TOKENS"], "500000");
+
+        let p2 = provider(None);
+        ClaudeAdapter.apply(&paths, &p2).unwrap();
+        let doc2 = read_value(&paths.claude_dir.join("settings.json"));
+        assert!(doc2["env"].get("CLAUDE_CODE_MAX_CONTEXT_TOKENS").is_none());
     }
 }
