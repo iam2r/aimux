@@ -835,12 +835,32 @@ impl App {
     }
 
     fn handle_catalog_key(&mut self, key: KeyEvent) {
+        // Snapshot slot_owner size before the keypress so we can detect
+        // whether deleting a row cleared any slot bindings, and surface
+        // that in the status bar.
+        let prev_slots = match &self.overlay {
+            Overlay::CatalogEditor { editor, .. } => editor.slot_owner.len(),
+            _ => 0,
+        };
         let cmd = match &mut self.overlay {
             Overlay::CatalogEditor { editor, .. } => editor.handle_key(key),
             _ => return,
         };
         match cmd {
-            CatalogCmd::Continue => {}
+            CatalogCmd::Continue => {
+                let now_slots = match &self.overlay {
+                    Overlay::CatalogEditor { editor, .. } => editor.slot_owner.len(),
+                    _ => return,
+                };
+                if now_slots < prev_slots {
+                    let n = prev_slots - now_slots;
+                    self.status = if n == 1 {
+                        t("status.catalog_row_dropped_one_slot").into()
+                    } else {
+                        tf("status.catalog_row_dropped_n_slots", &[&n.to_string()])
+                    };
+                }
+            }
             CatalogCmd::Cancel => {
                 if self.held_form.is_some() {
                     self.restore_held_form();
@@ -1999,6 +2019,66 @@ mod tests {
         assert!(
             app.store.providers.contains_key("packy"),
             "memory stays on load failure"
+        );
+    }
+
+    #[test]
+    fn deleting_catalog_row_with_slot_binding_surfaces_status() {
+        // If a deleted row owns a slot binding, the status bar reports
+        // how many slots were cleared so the user isn't left wondering
+        // where the sonnet went.
+        let td = tempfile::tempdir().unwrap();
+        let paths = Paths::for_test(td.path());
+        let mut app = sample(paths);
+
+        // Build a CatalogEditor with two rows; assign sonnet+opus to row 1.
+        use crate::store::ModelEntry;
+        use crate::tui::pages::models::CatalogEditor;
+        let mut p = crate::store::Provider::blank(crate::store::AppId::Claude);
+        p.id = "p".into();
+        p.name = "P".into();
+        p.base_url = "https://x".into();
+        p.api_key = "sk".into();
+        p.model = Some("a".into());
+        p.slots.insert("sonnet".into(), "b".into());
+        p.slots.insert("opus".into(), "b".into());
+        p.catalog = vec![
+            ModelEntry {
+                id: "a".into(),
+                ..ModelEntry::default()
+            },
+            ModelEntry {
+                id: "b".into(),
+                ..ModelEntry::default()
+            },
+        ];
+        let editor = CatalogEditor::from_provider(crate::adapter::models::CLAUDE_FIELDS, &p);
+        app.overlay = Overlay::CatalogEditor { editor };
+
+        // Sanity: two slot bindings seeded, row 0 focused.
+        match &app.overlay {
+            Overlay::CatalogEditor { editor, .. } => {
+                assert_eq!(editor.slot_owner.len(), 2);
+                assert_eq!(editor.row, 0);
+            }
+            _ => unreachable!(),
+        }
+
+        // Move to row 1 (the slot-bearing row) and delete it.
+        app.handle_catalog_key(key(KeyCode::Char('j')));
+        app.handle_catalog_key(key(KeyCode::Char('d')));
+
+        match &app.overlay {
+            Overlay::CatalogEditor { editor, .. } => {
+                assert_eq!(editor.rows.len(), 1, "row deleted");
+                assert!(editor.slot_owner.is_empty(), "slots cleared");
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            app.status.contains("2") && app.status.contains("slot"),
+            "status should mention 2 slots, got: {}",
+            app.status
         );
     }
 }

@@ -931,6 +931,42 @@ mod tests {
     }
 
     #[test]
+    fn model_overrides_duplicate_target_is_last_wins() {
+        // Two rows pointing at the same known target → the later row's id
+        // wins in `modelOverrides`. Matches the "later row overrides earlier"
+        // reading of a catalog (see docs §4.3 duplicate-target note).
+        let (_td, paths) = setup();
+        fs::create_dir_all(&paths.claude_dir).unwrap();
+        let mut p = provider(None);
+        p.slots.insert("haiku".into(), "second".into());
+        p.catalog = vec![
+            ModelEntry {
+                id: "first".into(),
+                context_window: None,
+                target_model_id: Some("claude-sonnet-4-6".into()),
+                ..ModelEntry::default()
+            },
+            ModelEntry {
+                id: "second".into(),
+                context_window: None,
+                target_model_id: Some("claude-sonnet-4-6".into()),
+                ..ModelEntry::default()
+            },
+        ];
+        ClaudeAdapter.apply(&paths, &p).unwrap();
+        let doc = read_value(&paths.claude_dir.join("settings.json"));
+        // Last-wins: only one entry per target, and it points to "second".
+        let mo = &doc["modelOverrides"];
+        assert_eq!(mo.as_object().unwrap().len(), 1);
+        assert_eq!(mo["claude-sonnet-4-6"], "second");
+        // The haiku env value is also routed through the second row's id.
+        assert_eq!(
+            doc["env"]["ANTHROPIC_DEFAULT_HAIKU_MODEL"],
+            "claude-sonnet-4-6"
+        );
+    }
+
+    #[test]
     fn max_context_tokens_stripped_when_switching_back() {
         // After a third-party provider with MAX_CONTEXT_TOKENS, switching
         // back to a clean third-party provider without one removes the key.

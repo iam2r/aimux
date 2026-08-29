@@ -263,6 +263,23 @@ pub enum PickerCmd {
     ConfirmSlot { key: &'static str, id: String },
 }
 
+/// Parse a token-count field. Empty → None (unset). Values < `min` are
+/// treated as garbage (typically placeholder text) and rejected so they
+/// don't pollute aggregate computations like the catalog-wide `min()` over
+/// `context_window` that drives `CLAUDE_CODE_MAX_CONTEXT_TOKENS`.
+fn parse_window(raw: &str, min: u64) -> Option<u64> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let n: u64 = trimmed.parse().ok()?;
+    if n < min {
+        None
+    } else {
+        Some(n)
+    }
+}
+
 pub struct CatalogEditor {
     pub fields: &'static [CatalogField],
     pub rows: Vec<ModelEntry>,
@@ -612,10 +629,13 @@ impl CatalogEditor {
                 };
             }
             CatalogField::ContextWindow => {
-                row.context_window = v.parse().ok();
+                // Reject sub-1000 values so a stray "1" placeholder can't
+                // pollute the `min()` over the whole catalog (§8 risk #1).
+                // Empty input is "unset" → None.
+                row.context_window = parse_window(v, 1_000);
             }
             CatalogField::MaxTokens => {
-                row.max_tokens = v.parse().ok();
+                row.max_tokens = parse_window(v, 1_000);
             }
             CatalogField::Slots | CatalogField::TargetModelId => {}
         }
@@ -816,6 +836,43 @@ mod tests {
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn parse_window_rejects_sub_threshold_and_garbage() {
+        // Empty → None (unset).
+        assert_eq!(parse_window("", 1_000), None);
+        assert_eq!(parse_window("   ", 1_000), None);
+        // Below the min → None (placeholder protection).
+        assert_eq!(parse_window("1", 1_000), None);
+        assert_eq!(parse_window("999", 1_000), None);
+        // Non-numeric → None.
+        assert_eq!(parse_window("abc", 1_000), None);
+        // At or above the min → Some.
+        assert_eq!(parse_window("1000", 1_000), Some(1_000));
+        assert_eq!(parse_window("200000", 1_000), Some(200_000));
+        // Trims whitespace.
+        assert_eq!(parse_window("  50000  ", 1_000), Some(50_000));
+    }
+
+    #[test]
+    fn context_window_field_rejects_sub_threshold() {
+        // Typing "1" into the ContextWindow cell should NOT poison the row:
+        // it stays None, so min() over the catalog is unaffected.
+        let mut ed = claude_editor_with(
+            vec![ModelEntry {
+                id: "a".into(),
+                ..ModelEntry::default()
+            }],
+            "a",
+        );
+        focus_field(&mut ed, crate::adapter::models::CatalogField::ContextWindow);
+        ed.handle_key(key(KeyCode::Char('e')));
+        for c in "1".chars() {
+            ed.handle_key(key(KeyCode::Char(c)));
+        }
+        ed.handle_key(key(KeyCode::Enter));
+        assert!(ed.rows[0].context_window.is_none());
     }
 
     #[test]

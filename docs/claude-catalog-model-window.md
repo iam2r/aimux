@@ -1,9 +1,12 @@
 # claude 目录与模型窗口（Catalog 同构）
 
-> 状态：设计方案（**未实施**）。背景是 Claude Code 对非常规模型 ID（如网关别名
-> `hilinkup/z-ai/glm-5.3-flash`）的未知模型提示，要求手动设
-> `CLAUDE_CODE_MAX_CONTEXT_TOKENS` 或在 `modelOverrides` 中映射。
-> aimux 现状只把 `ANTHROPIC_MODEL` 写进 `settings.json`，代理行必然触发该提示。
+> 状态：v1 **已实施**（commit `89954de` / aimux v0.1.11+），等待评审。
+> 背景是 Claude Code 对非常规模型 ID（如网关别名 `hilinkup/z-ai/glm-5.3-flash`）
+> 的未知模型提示，要求手动设 `CLAUDE_CODE_MAX_CONTEXT_TOKENS` 或在
+> `modelOverrides` 中映射。aimux v0.1.10 之前只把 `ANTHROPIC_MODEL` 写进
+> `settings.json`，代理行必然触发该提示。v1 在每个 claude provider 上引入
+> `catalog: Vec<ModelEntry>`，apply 阶段写 `modelOverrides` + `MAX_CONTEXT_TOKENS`。
+> 仍有 §8 列出的几个跟踪项。
 
 ---
 
@@ -131,6 +134,8 @@ pub struct ModelEntry {
 
 **`CLAUDE_CODE_MAX_CONTEXT_TOKENS` 推导示例**：3 行 catalog，窗口分别为 200000 / 1000000 / None → min(200000, 1000000) = **200000**（None 跳过）。全空 → 不写该键。
 
+**`modelOverrides` 重复 target 行为**：若 catalog 中两行都映射到同一 Anthropic ID（如都填 `claude-sonnet-4-6`），按 `provider.catalog` Vec 的迭代顺序后者胜出（last-wins）。TUI 当前没有 visual warning——属于 §4.2 "搬家"的同族 UX 问题，未来加行重排能力时一起处理。
+
 ### 4.4 QuickItem
 
 ```rust
@@ -187,7 +192,7 @@ QuickItem {
 **决策**：agate 不改写 Anthropic wire 错误文案，被动恢复（`CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1`）可用。
 
 **Why**：三处证据一致——
-1. `cf-workers/workers/agate/worker/main.ts:194` 的 `v1Error(... 'anthropic' ...)` 路径直接调用 `createAnthropicErrorBody(message, type)`，原 message 透传；
+1. `cf-workers/workers/agate/worker/main.ts:191` 的 `v1Error(... 'anthropic' ...)` 路径直接调用 `createAnthropicErrorBody(message, type)`，原 message 透传；
 2. `cf-workers/workers/agate/worker/providers/endpoints/index.ts:407` `markPassthrough` 标记的透传路径只重置错误归一化层，不重写 body；
 3. `cf-workers/packages/ai-protocol/src/runtime/errors.ts` 仅覆盖 OpenAI 侧（"OpenAI 错误归一化层"），无 Anthropic 分支。
 
@@ -238,26 +243,18 @@ opus 选中，单一 `CLAUDE_CODE_MAX_CONTEXT_TOKENS`（取 Default）会与 hai
 
 **决策**：Claude Code 侧**不存在**"模型自报窗口"的协议扩展；`CLAUDE_CODE_MAX_CONTEXT_TOKENS` + `modelOverrides` 是仅有的两条机制。aimux 无需在 `claude.rs` 中追加兼容性拼接。
 
-**Why**：`code.claude.com/docs/en/model-config` / `env-vars` / `settings`（§2 源）已枚举所有相关 env 与 settings 键；§2 表的 5 行穷尽 `MAX_CONTEXT_TOKENS` / `DISABLE_UNKNOWN_*` / `modelOverrides` / `[1m]` / `DISABLE_1M_*` / `AUTO_COMPACT_WINDOW` / `AUTOCOMPACT_PCT_OVERRIDE`，无任何"模型在请求中声明窗口"的 client 端钩子。cc-switch-cli 的 `transform_codex_chat.rs` 解决的是 OpenAI Responses ↔ Chat Completions 协议差异，与"模型窗口声明"不同维度，不可类比。
+**Why**：`code.claude.com/docs/en/model-config` / `env-vars` / `settings`（§2 源）已枚举所有相关 env 与 settings 键；§2 表的 6 行穷尽 `MAX_CONTEXT_TOKENS` / `DISABLE_UNKNOWN_*` / `modelOverrides` / `[1m]` / `DISABLE_1M_*` / `AUTO_COMPACT_WINDOW` / `AUTOCOMPACT_PCT_OVERRIDE`，无任何"模型在请求中声明窗口"的 client 端钩子。cc-switch-cli 的 `transform_codex_chat.rs` 解决的是 OpenAI Responses ↔ Chat Completions 协议差异，与"模型窗口声明"不同维度，不可类比。
 
 ---
 
-## 7. 决策落实后剩余动作
+## 7. 实施时间线
 
-本轮（§6 疑问 1–7）已通过源码 / 二进制核对完成所有前置判断，不再需要 §4.5 之前的额外实测。剩余风险见 §8。
-
-编码阶段按以下顺序推进：
-
-1. `store.rs` — `ModelEntry.target_model_id` + store-load 播种迁移（Q6 决策）
-2. `claude.rs` — `model_ui()` 切 `Catalog` + `patch_claude_env` 新增 §4.3 表的两段 + `KNOWN_CLAUDE_MODEL_IDS` 静态表
-3. `tui/pages/models.rs` — CatalogEditor 扩展：slots 多选弹层、Default radio、target model id 下拉（首项 `(none)`）
-4. `quick.rs` + `i18n.rs` — 新 QuickItem（§4.4，沿用 Q2 风险已消除的兜底 label）
-5. 全量回归：覆盖 `official=true`、空 catalog、单行非 Default、空 id 边界、target 不在 known 表时回退
+- **2026-08-29 commit `89954de` / aimux v0.1.11** — §1–§6 全部落地，§4.3 表的 live 生成规则实现。CI 在 Windows 上因 pre-existing `try_launch::end_to_end_launch_uses_isolated_env`（与本设计无关）失败，不影响 release 流程。
 
 ## 8. Open Risks
 
-1. **Q5 min() 过度保守**：若某行 `context_window` 误填小值（如占位 1）会被全表 min 拉低，污染 `MAX_CONTEXT_TOKENS`。缓解：编辑器加字段级校验（`> 1000` 之类）；不在本设计强制。
-2. **slot 重新指派的撤销语义**：当前未约定"取消勾选某个 slot 后，旧行的同 slot 落点是否回滚到上一行"——见 §4.2 "搬家"措辞，需在 TUI 行为层细化（本期之外）。
-3. **`modelOverrides` 多版本兼容性**：v2.1.200 之前的 Claude Code 仍会旁路 env 改写。Q3 决策只覆盖本机 2.1.251，跨用户安装版本无法保证——若日后接入远程用户统计可补 runtime probe。
-4. **agate 未来若新增 Anthropic 错误改写**：Q2 结论依赖"agate 不动 Anthropic wire 错误"的现状。agate 升级时需保留 `createAnthropicErrorBody(message, type)` 透传契约——可考虑在 agate 测试里加一条"Anthropic 4xx 文案保真"用例，但属于跨仓工作。
-5. **Q6 占位行的"添加一个模型"渲染**：实现期需明确占位行的编辑提交时机（首次失焦即物化 / 显式按钮），本设计未定。
+1. **Q5 min() 过度保守**：若某行 `context_window` 误填小值（如占位 1）会被全表 min 拉低，污染 `MAX_CONTEXT_TOKENS`。**已落 mitigation**：`CatalogEditor::commit_edit` 在 §0.2.0 起对 `ContextWindow` 解析后过滤 `>= 1000`，小于阈值视为 None 不写入。重复 target 行为在 `claude.rs::patch_claude_env` 里**last-wins**（按 `provider.catalog` Vec 顺序）—— 用户两行映射到 `claude-sonnet-4-6` 时后者胜出；TUI 当前没有 visual warning（属于 §4.2 "搬家"的同族 UX 问题）。
+2. **slot 重新指派的撤销语义**：取消 slot 落点后旧行直接清空（in-editor `delete_row` 也清 `slot_owner`），状态栏会提示"已清 N 个 slot"；但若用户希望"回滚到上一个拥有者"——见 §4.2 "搬家"措辞——需要单独设计。**已记 issue：待 TUI 重做行重排时一并处理**。
+3. **`modelOverrides` 多版本兼容性**：v2.1.200 之前的 Claude Code 仍会旁路 env 改写。Q3 决策只覆盖本机 2.1.251，跨用户安装版本无法保证。**已记 issue**：README 加 `requires Claude Code >= v2.1.200` 提示。
+4. **agate 未来若新增 Anthropic 错误改写**：Q2 结论依赖"agate 不动 Anthropic wire 错误"的现状。agate 升级时需保留 `createAnthropicErrorBody(message, type)` 透传契约——可考虑在 agate 测试里加一条"Anthropic 4xx 文案保真"用例，但属于跨仓工作。**已记 issue**。
+5. **Q6 占位行的"添加一个模型"渲染**：实现期需明确占位行的编辑提交时机（首次失焦即物化 / 显式按钮），本设计未定。**已记 issue**。
