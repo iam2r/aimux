@@ -614,15 +614,23 @@ fn draw_catalog(frame: &mut Frame, editor: &CatalogEditor, area: Rect, theme: Th
     if let Some(picker) = editor.target_picker.as_ref() {
         let mut lines = Vec::new();
         // Item 0 is "(none)" — clears the row's target_model_id.
+        let mark_idx = picker.mark;
+        let mark_of = |i: usize| {
+            if mark_idx == Some(i) {
+                "[x]"
+            } else {
+                "[ ]"
+            }
+        };
         let none_cur = if picker.cursor == 0 { ">" } else { " " };
         lines.push(Line::from(Span::styled(
-            format!("{none_cur}(none)"),
+            format!("{none_cur}{} (none)", mark_of(0)),
             theme.fg(theme.fg),
         )));
         for (i, id) in admodels::KNOWN_CLAUDE_MODEL_IDS.iter().enumerate() {
             let cur = if i + 1 == picker.cursor { ">" } else { " " };
             lines.push(Line::from(Span::styled(
-                format!("{cur}{id}"),
+                format!("{cur}{} {id}", mark_of(i + 1)),
                 theme.fg(theme.fg),
             )));
         }
@@ -802,7 +810,11 @@ mod tests {
         );
         editor.row = 0;
         editor.col = 4; // TargetModelId
-        editor.target_picker = Some(TargetPickerState { row: 0, cursor: 1 });
+        editor.target_picker = Some(TargetPickerState {
+            row: 0,
+            cursor: 1,
+            mark: None,
+        });
 
         let render = |editor: &CatalogEditor| -> String {
             let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();

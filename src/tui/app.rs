@@ -208,6 +208,11 @@ impl App {
             | Overlay::ConfirmSync { .. } => t("ui.confirm_hint").into(),
             Overlay::Syncing | Overlay::FetchingModels => t("status.hint_syncing").into(),
             Overlay::ModelPicker(_) => t("status.hint_picker").into(),
+            Overlay::CatalogEditor { editor }
+                if editor.slot_picker.is_some() || editor.target_picker.is_some() =>
+            {
+                t("status.hint_catalog_popover").into()
+            }
             Overlay::CatalogEditor { .. } => t("status.hint_catalog").into(),
             Overlay::SlotEditor { .. } => t("status.hint_slots").into(),
             Overlay::SnippetEditor(_) => t("status.hint_snippet").into(),
@@ -2192,7 +2197,8 @@ mod tests {
         }
         app.handle_catalog_key(key(KeyCode::Char(' '))); // open popover on row 1
         app.handle_catalog_key(key(KeyCode::Char('j'))); // cursor 0 -> 1 (sonnet)
-        app.handle_catalog_key(key(KeyCode::Enter)); // unassign
+        app.handle_catalog_key(key(KeyCode::Char(' '))); // toggle sonnet off
+        app.handle_catalog_key(key(KeyCode::Enter)); // close popover
 
         match &app.overlay {
             Overlay::CatalogEditor { editor, .. } => {

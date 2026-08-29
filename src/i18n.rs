@@ -203,6 +203,7 @@ fn en(key: &'static str) -> &'static str {
         "help.settings_footnote" => "Auto detection looks for the CLI on PATH, a config folder, or providers already saved in aimux. Manual mode shows or hides each app; at least one stays visible.",
         "status.hint_picker" => "j/k move  PgUp/PgDn page  Space toggle  / filter  ←→ cursor  Enter confirm  Esc cancel",
         "status.hint_catalog" => "j/k row  Tab column  e edit  n new  d delete  * default  Enter save  Esc cancel",
+        "status.hint_catalog_popover" => "j/k move  Space toggle  Enter done  Esc cancel",
         "status.hint_slots" => "j/k  e edit  Space fetch  a copy to all  Enter save  Esc cancel",
         "status.hint_snippet" => "j/k checkboxes  Space toggle  Tab body  Ctrl+S save  Esc cancel",
         "status.snippet_saved" => "Snippet saved",
@@ -473,6 +474,7 @@ fn zh(key: &'static str) -> Option<&'static str> {
         "status.hint_catalog" => {
             "j/k 行  Tab 列  e 编辑  n 新增  d 删除  * 默认  Enter 保存  Esc 取消"
         }
+        "status.hint_catalog_popover" => "j/k 移动  空格 勾选  Enter 完成  Esc 取消",
         "status.hint_slots" => "j/k  e 编辑  空格 拉取  a 同步到全部档位  Enter 保存  Esc 取消",
         "status.hint_snippet" => "j/k 勾选  空格 切换  Tab 正文  Ctrl+S 保存  Esc 取消",
         "status.snippet_saved" => "公共配置已保存",

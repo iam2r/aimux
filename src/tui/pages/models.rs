@@ -320,6 +320,9 @@ pub struct SlotPickerState {
 pub struct TargetPickerState {
     pub row: usize,
     pub cursor: usize,
+    /// Slot marked via space (like the catalog ModelPicker's checkboxes);
+    /// Enter commits the mark instead of wherever the cursor idles.
+    pub mark: Option<usize>,
 }
 
 impl CatalogEditor {
@@ -469,6 +472,7 @@ impl CatalogEditor {
                     self.target_picker = Some(TargetPickerState {
                         row: self.row,
                         cursor,
+                        mark: None,
                     });
                 }
                 CatalogCmd::Continue
@@ -488,22 +492,29 @@ impl CatalogEditor {
 
     fn handle_target_picker_key(&mut self, key: KeyEvent) -> CatalogCmd {
         // Item 0 is "(none)"; items 1..=N are KNOWN_CLAUDE_MODEL_IDS.
+        // Space toggles a non-binding single mark (stays open); Enter commits
+        // the marked id (or the cursor, when nothing is marked) and closes.
         let total = models::KNOWN_CLAUDE_MODEL_IDS.len() + 1;
         match key.code {
             KeyCode::Esc => {
                 self.target_picker = None;
             }
+            KeyCode::Char(' ') => {
+                if let Some(p) = self.target_picker.as_mut() {
+                    p.mark = Some(p.cursor);
+                }
+            }
             KeyCode::Enter => {
                 let Some(picker) = self.target_picker.as_ref() else {
                     return CatalogCmd::Continue;
                 };
-                let cursor = picker.cursor;
+                let picked = picker.mark.unwrap_or(picker.cursor);
                 let row_idx = picker.row;
-                let chosen: Option<String> = if cursor == 0 {
+                let chosen: Option<String> = if picked == 0 {
                     None
                 } else {
                     models::KNOWN_CLAUDE_MODEL_IDS
-                        .get(cursor - 1)
+                        .get(picked - 1)
                         .map(|s| s.to_string())
                 };
                 if let Some(row) = self.rows.get_mut(row_idx) {
@@ -534,14 +545,15 @@ impl CatalogEditor {
             KeyCode::Esc => {
                 self.slot_picker = None;
             }
-            KeyCode::Enter => {
+            KeyCode::Char(' ') => {
+                // Toggle the slot under the cursor but keep the popover
+                // open so several slots can be assigned in one visit.
                 let Some(picker) = self.slot_picker.as_ref() else {
                     return CatalogCmd::Continue;
                 };
                 let cursor = picker.cursor;
                 let row_idx = picker.row;
                 let Some(slot) = slots.get(cursor) else {
-                    self.slot_picker = None;
                     return CatalogCmd::Continue;
                 };
                 let row_id = self
@@ -550,7 +562,6 @@ impl CatalogEditor {
                     .map(|r| r.id.clone())
                     .unwrap_or_default();
                 if row_id.is_empty() {
-                    self.slot_picker = None;
                     return CatalogCmd::Continue;
                 }
                 if self.slot_owner.get(slot.key).map(String::as_str) == Some(&row_id) {
@@ -559,7 +570,9 @@ impl CatalogEditor {
                     // "搬家": steal the slot from any other row.
                     self.slot_owner.insert(slot.key, row_id);
                 }
-                // Close the popover after a selection.
+            }
+            KeyCode::Enter => {
+                // Enter confirms the current toggles and closes the popover.
                 self.slot_picker = None;
             }
             KeyCode::Char('j') | KeyCode::Down => {
@@ -1086,6 +1099,82 @@ mod tests {
     }
 
     #[test]
+    fn slot_picker_space_multi_select_keeps_popover_open() {
+        // space toggles a slot without closing the popover so several
+        // slots can be assigned in one visit; Enter only closes.
+        let mut ed = claude_editor_with(
+            vec![ModelEntry {
+                id: "a".into(),
+                ..ModelEntry::default()
+            }],
+            "a",
+        );
+        ed.row = 0;
+        focus_field(&mut ed, CatalogField::Slots);
+        ed.handle_key(key(KeyCode::Char(' ')));
+        assert!(ed.slot_picker.is_some());
+
+        // toggle haiku (cursor 0) on — popover must stay open
+        ed.handle_key(key(KeyCode::Char(' ')));
+        assert_eq!(ed.slot_owner.get("haiku").map(String::as_str), Some("a"));
+        assert!(ed.slot_picker.is_some());
+
+        // move to sonnet (1) and toggle it on as well
+        ed.handle_key(key(KeyCode::Char('j')));
+        ed.handle_key(key(KeyCode::Char(' ')));
+        assert_eq!(ed.slot_owner.get("sonnet").map(String::as_str), Some("a"));
+        assert!(ed.slot_picker.is_some());
+
+        // toggle haiku back off (wrap-around j,k back to 0)
+        ed.handle_key(key(KeyCode::Char('k')));
+        ed.handle_key(key(KeyCode::Char(' ')));
+        assert!(!ed.slot_owner.contains_key("haiku"));
+        assert!(ed.slot_picker.is_some());
+
+        // Enter commits and closes
+        ed.handle_key(key(KeyCode::Enter));
+        assert!(ed.slot_picker.is_none());
+        assert_eq!(ed.slot_owner.get("sonnet").map(String::as_str), Some("a"));
+    }
+
+    #[test]
+    fn target_picker_space_marks_enter_commits_mark() {
+        // space marks the cursor item (checkbox semantics); Enter commits
+        // the mark even after the cursor moves away from it.
+        let mut ed = claude_editor_with(
+            vec![ModelEntry {
+                id: "a".into(),
+                ..ModelEntry::default()
+            }],
+            "a",
+        );
+        ed.row = 0;
+        focus_field(&mut ed, CatalogField::TargetModelId);
+        ed.handle_key(key(KeyCode::Char(' ')));
+        assert!(ed.target_picker.is_some());
+
+        // cursor parks at 0 "(none)" (row has no target yet); move to the
+        // first known id and space-mark it
+        ed.handle_key(key(KeyCode::Char('j')));
+        assert_eq!(ed.target_picker.as_ref().unwrap().cursor, 1);
+        ed.handle_key(key(KeyCode::Char(' ')));
+        assert_eq!(ed.target_picker.as_ref().unwrap().mark, Some(1));
+        assert!(ed.target_picker.is_some(), "space keeps the popover open");
+
+        // move the cursor away — the mark must survive
+        ed.handle_key(key(KeyCode::Char('j')));
+        assert_ne!(ed.target_picker.as_ref().unwrap().cursor, 1);
+
+        // Enter commits the marked id, not the cursor's
+        ed.handle_key(key(KeyCode::Enter));
+        assert!(ed.target_picker.is_none());
+        assert_eq!(
+            ed.rows[0].target_model_id.as_deref(),
+            Some(models::KNOWN_CLAUDE_MODEL_IDS[0])
+        );
+    }
+
+    #[test]
     fn claude_slot_assignment_steals() {
         let mut ed = claude_editor_with(
             vec![
@@ -1107,8 +1196,11 @@ mod tests {
         assert!(ed.slot_picker.is_some());
         // cursor starts at haiku (0). sonnet is index 1.
         ed.handle_key(key(KeyCode::Char('j')));
-        ed.handle_key(key(KeyCode::Enter));
+        // space toggles the slot assignment and keeps the popover open
+        ed.handle_key(key(KeyCode::Char(' ')));
         assert_eq!(ed.slot_owner.get("sonnet").map(String::as_str), Some("b"));
+        assert!(ed.slot_picker.is_some());
+        ed.handle_key(key(KeyCode::Enter));
         assert!(ed.slot_picker.is_none());
 
         // Reassign sonnet to a -> b is evicted.
@@ -1116,6 +1208,7 @@ mod tests {
         focus_field(&mut ed, CatalogField::Slots);
         ed.handle_key(key(KeyCode::Char(' ')));
         ed.handle_key(key(KeyCode::Char('j')));
+        ed.handle_key(key(KeyCode::Char(' ')));
         ed.handle_key(key(KeyCode::Enter));
         assert_eq!(ed.slot_owner.get("sonnet").map(String::as_str), Some("a"));
     }
@@ -1217,6 +1310,7 @@ mod tests {
         focus_field(&mut ed, CatalogField::Slots);
         ed.handle_key(key(KeyCode::Char(' ')));
         ed.handle_key(key(KeyCode::Char('j')));
+        ed.handle_key(key(KeyCode::Char(' ')));
         ed.handle_key(key(KeyCode::Enter));
 
         let mut p = Provider::blank(AppId::Claude);
@@ -1246,6 +1340,7 @@ mod tests {
         focus_field(&mut ed, CatalogField::Slots);
         ed.handle_key(key(KeyCode::Char(' ')));
         ed.handle_key(key(KeyCode::Char('j')));
+        ed.handle_key(key(KeyCode::Char(' ')));
         ed.handle_key(key(KeyCode::Enter));
         assert_eq!(ed.slot_owner.get("sonnet").map(String::as_str), Some("b"));
 
@@ -1278,17 +1373,19 @@ mod tests {
         focus_field(&mut ed, CatalogField::Slots);
         ed.handle_key(key(KeyCode::Char(' ')));
         ed.handle_key(key(KeyCode::Char('j')));
+        ed.handle_key(key(KeyCode::Char(' ')));
         ed.handle_key(key(KeyCode::Enter));
         assert_eq!(ed.slot_owner.get("sonnet").map(String::as_str), Some("b"));
         assert_eq!(ed.pending_dropped_slots, 0);
 
         // Now open the popover again on row 1 and re-toggle the same slot
-        // (cursor starts at haiku; press j to land on sonnet, then Enter
-        // to unassign).
+        // (cursor starts at haiku; press j to land on sonnet, then space
+        // to unassign, Enter to close).
         ed.row = 1;
         focus_field(&mut ed, CatalogField::Slots);
         ed.handle_key(key(KeyCode::Char(' ')));
         ed.handle_key(key(KeyCode::Char('j')));
+        ed.handle_key(key(KeyCode::Char(' ')));
         ed.handle_key(key(KeyCode::Enter));
         assert!(!ed.slot_owner.contains_key("sonnet"));
         // Popover cancel must NOT have set the pending field.
