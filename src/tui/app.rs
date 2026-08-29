@@ -12,6 +12,7 @@ use crate::paths::Paths;
 use crate::settings::{self, Settings};
 use crate::store::{AppId, Provider, Store};
 use crate::switch;
+use crate::webdav;
 
 use super::keymap::{self, Action, KeyMode};
 use super::pages::backups;
@@ -34,6 +35,7 @@ pub enum Overlay {
     None,
     ConfirmDelete { id: String, name: String },
     ConfirmRestore { name: String },
+    ConfirmSync { kind: SyncKind, url: String, last_sync_at: String },
     Form(Form),
     Syncing,
     FetchingModels,
@@ -41,6 +43,12 @@ pub enum Overlay {
     CatalogEditor { editor: CatalogEditor },
     SlotEditor { editor: SlotEditor },
     SnippetEditor(SnippetPage),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncKind {
+    Push,
+    Pull,
 }
 
 pub struct App {
@@ -182,7 +190,7 @@ impl App {
         }
         match &self.overlay {
             Overlay::Form(_) => t("ui.form_hint").into(),
-            Overlay::ConfirmDelete { .. } | Overlay::ConfirmRestore { .. } => {
+            Overlay::ConfirmDelete { .. } | Overlay::ConfirmRestore { .. } | Overlay::ConfirmSync { .. } => {
                 t("ui.confirm_hint").into()
             }
             Overlay::Syncing | Overlay::FetchingModels => t("status.hint_syncing").into(),
@@ -245,7 +253,7 @@ impl App {
         }
         if matches!(
             self.overlay,
-            Overlay::ConfirmDelete { .. } | Overlay::ConfirmRestore { .. }
+            Overlay::ConfirmDelete { .. } | Overlay::ConfirmRestore { .. } | Overlay::ConfirmSync { .. }
         ) {
             self.handle_confirm_key(key);
             return false;
@@ -323,8 +331,8 @@ impl App {
                 self.page = Page::Providers;
             }
             Action::Restore => self.open_restore(),
-            Action::SyncPush => self.start_job(Job::Push),
-            Action::SyncPull => self.start_job(Job::Pull),
+            Action::SyncPush => self.open_sync_confirm(SyncKind::Push),
+            Action::SyncPull => self.open_sync_confirm(SyncKind::Pull),
             Action::SyncSetup => self.open_sync_setup(),
             Action::SpeedTest => self.start_speed_test(),
             Action::TryLaunch => self.queue_try_launch(),
@@ -644,6 +652,22 @@ impl App {
         self.overlay = Overlay::Form(form::for_sync_setup(cloud::credentials(&self.paths)));
     }
 
+    fn open_sync_confirm(&mut self, kind: SyncKind) {
+        if self.sync_rx.is_some() || matches!(self.overlay, Overlay::Syncing) {
+            return;
+        }
+        let Some(local) = cloud::local_sync(&self.paths) else {
+            self.status = t("status.sync_unconfigured").into();
+            return;
+        };
+        self.help = false;
+        self.overlay = Overlay::ConfirmSync {
+            kind,
+            url: webdav::redact_url(&local.url),
+            last_sync_at: local.last_sync_at,
+        };
+    }
+
     fn confirm_yes(&mut self) {
         match &self.overlay {
             Overlay::ConfirmDelete { id, .. } => {
@@ -670,6 +694,15 @@ impl App {
                         self.finish_disk_sync(tf("status.restore_failed", &[&format!("{e:#}")]))
                     }
                 }
+            }
+            Overlay::ConfirmSync { kind, .. } => {
+                let job = match kind {
+                    SyncKind::Push => Job::Push,
+                    SyncKind::Pull => Job::Pull,
+                };
+                self.overlay = Overlay::None;
+                self.start_job(job);
+                return;
             }
             _ => self.overlay = Overlay::None,
         }
@@ -2214,5 +2247,120 @@ mod tests {
             "status should mention new default 'b'; got: {}",
             app.status
         );
+    }
+
+    #[test]
+    fn sync_push_and_pull_open_confirm_overlay() {
+        let td = tempfile::tempdir().unwrap();
+        let paths = Paths::for_test(td.path());
+        let srv = crate::webdav::mock::MockServer::start();
+        let url = srv.collection_url("/dav");
+        // Stage a configured WebDAV so open_sync_confirm has credentials to read.
+        let mut app = sample(paths.clone());
+        app.handle_action(Action::OpenData);
+        app.handle_action(Action::SyncSetup);
+        {
+            let Overlay::Form(form) = &mut app.overlay else {
+                panic!("setup form");
+            };
+            for f in &mut form.fields {
+                match f.key {
+                    "url" => f.value = url.clone(),
+                    "username" => f.value = "u".into(),
+                    "password" => {
+                        f.secret_keep = false;
+                        f.value = "p".into();
+                    }
+                    _ => {}
+                }
+            }
+        }
+        app.submit_form();
+        assert!(app.is_syncing());
+        let start = std::time::Instant::now();
+        while app.is_syncing() && start.elapsed() < std::time::Duration::from_secs(8) {
+            if app.poll_sync() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(!app.is_syncing(), "{}", app.status);
+        assert!(cloud::local_sync(&paths).is_some());
+
+        // p → ConfirmSync (Push) overlay
+        app.handle_action(Action::SyncPush);
+        assert!(
+            matches!(app.overlay, Overlay::ConfirmSync { kind: SyncKind::Push, .. }),
+            "expected ConfirmSync Push, got {:?}",
+            overlay_label(&app.overlay)
+        );
+        // Render so the popup text is exercised; "never" must show when last_sync_at is empty
+        let mut term = ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 24)).unwrap();
+        term.draw(|f| view::draw(f, &mut app)).unwrap();
+        let txt = buffer_text(&term);
+        assert!(
+            txt.contains("Push") || txt.contains("推送"),
+            "popup should show push title; got: {txt}"
+        );
+        assert!(
+            txt.contains("never") || txt.contains("从未"),
+            "popup should show 'never' when no prior sync; got: {txt}"
+        );
+        // Esc cancels
+        app.handle_confirm_key(key(KeyCode::Esc));
+        assert!(matches!(app.overlay, Overlay::None));
+
+        // u → ConfirmSync (Pull)
+        app.handle_action(Action::SyncPull);
+        assert!(
+            matches!(app.overlay, Overlay::ConfirmSync { kind: SyncKind::Pull, .. }),
+            "expected ConfirmSync Pull, got {:?}",
+            overlay_label(&app.overlay)
+        );
+        term.draw(|f| view::draw(f, &mut app)).unwrap();
+        let txt = buffer_text(&term);
+        assert!(
+            txt.contains("Pull") || txt.contains("拉取"),
+            "popup should show pull title; got: {txt}"
+        );
+        // y triggers the actual job (overlay → Syncing)
+        app.handle_confirm_key(key(KeyCode::Char('y')));
+        assert!(
+            matches!(app.overlay, Overlay::Syncing),
+            "expected Syncing after confirm, got {:?}",
+            overlay_label(&app.overlay)
+        );
+    }
+
+    #[test]
+    fn sync_action_without_config_does_not_open_confirm() {
+        let td = tempfile::tempdir().unwrap();
+        let paths = Paths::for_test(td.path());
+        let mut app = sample(paths);
+        app.handle_action(Action::OpenData);
+        // No webdav.json yet — should set status and not open ConfirmSync.
+        app.handle_action(Action::SyncPush);
+        assert!(
+            !matches!(app.overlay, Overlay::ConfirmSync { .. }),
+            "must not show confirm when sync is unconfigured: {:?}",
+            overlay_label(&app.overlay)
+        );
+        assert!(!app.status.is_empty());
+    }
+
+    fn overlay_label(overlay: &Overlay) -> String {
+        match overlay {
+            Overlay::None => "None".into(),
+            Overlay::ConfirmDelete { id, name } => format!("ConfirmDelete({id},{name})"),
+            Overlay::ConfirmRestore { name } => format!("ConfirmRestore({name})"),
+            Overlay::ConfirmSync { kind, .. } => format!("ConfirmSync({:?})", kind),
+            Overlay::Form(_) => "Form".into(),
+            Overlay::Syncing => "Syncing".into(),
+            Overlay::FetchingModels => "FetchingModels".into(),
+            Overlay::ModelPicker(_) => "ModelPicker".into(),
+            Overlay::CatalogEditor { .. } => "CatalogEditor".into(),
+            Overlay::SlotEditor { .. } => "SlotEditor".into(),
+            Overlay::SnippetEditor(_) => "SnippetEditor".into(),
+        }
     }
 }

@@ -109,6 +109,9 @@ fn en(key: &'static str) -> &'static str {
         "ui.delete" => "Delete",
         "ui.restore" => "Restore",
         "ui.syncing" => "Syncing…",
+        "ui.sync_push" => "Push",
+        "ui.sync_pull" => "Pull",
+        "ui.sync_never" => "never",
         "ui.timestamp" => "timestamp",
         "ui.named" => "named",
         "ui.webdav_unconfigured" => "WebDAV is not configured. Press e to open setup.",
@@ -243,6 +246,8 @@ fn en(key: &'static str) -> &'static str {
 
         "confirm.delete" => "Delete provider {0} ({1})?",
         "confirm.restore" => "Restore from backup {0}? This replaces your current provider list.",
+        "confirm.sync_push" => "Push local store to {0}? Last sync: {1}.",
+        "confirm.sync_pull" => "Pull remote store from {0}? Last sync: {1}.",
 
         "form.required" => "{0} must not be empty",
         "form.invalid" => "Invalid value for {0}",
@@ -370,6 +375,9 @@ fn zh(key: &'static str) -> Option<&'static str> {
         "ui.delete" => "删除",
         "ui.restore" => "恢复",
         "ui.syncing" => "同步中…",
+        "ui.sync_push" => "推送",
+        "ui.sync_pull" => "拉取",
+        "ui.sync_never" => "从未",
         "ui.timestamp" => "时间戳",
         "ui.named" => "命名",
         "ui.webdav_unconfigured" => "尚未配置 WebDAV。按 e 打开设置。",
@@ -508,6 +516,8 @@ fn zh(key: &'static str) -> Option<&'static str> {
 
         "confirm.delete" => "删除供应商 {0}（{1}）？",
         "confirm.restore" => "从备份 {0} 恢复？会替换当前的供应商列表。",
+        "confirm.sync_push" => "推送本地 store 到 {0}？上次同步：{1}。",
+        "confirm.sync_pull" => "从 {0} 拉取远程 store？上次同步：{1}。",
 
         "form.required" => "{0} 不能为空",
         "form.invalid" => "{0} 取值无效",

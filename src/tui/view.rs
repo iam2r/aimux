@@ -9,7 +9,7 @@ use crate::adapter::FieldKind;
 use crate::i18n::{t, tf};
 use crate::mask;
 
-use super::app::{App, Overlay, Page};
+use super::app::{App, Overlay, Page, SyncKind};
 use super::edit;
 use super::help;
 use super::pages::form;
@@ -65,6 +65,28 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             &tf("confirm.restore", &[name]),
             theme,
         ),
+        Overlay::ConfirmSync { kind, url, last_sync_at } => {
+            let title = match kind {
+                SyncKind::Push => t("ui.sync_push"),
+                SyncKind::Pull => t("ui.sync_pull"),
+            };
+            let key = match kind {
+                SyncKind::Push => "confirm.sync_push",
+                SyncKind::Pull => "confirm.sync_pull",
+            };
+            let last_display = if last_sync_at.is_empty() {
+                t("ui.sync_never").to_string()
+            } else {
+                last_sync_at.get(..19).unwrap_or(last_sync_at).to_string()
+            };
+            draw_confirm(
+                frame,
+                frame.area(),
+                title,
+                &tf(key, &[url, &last_display]),
+                theme,
+            )
+        }
         Overlay::Syncing => draw_busy(frame, frame.area(), t("ui.sync"), sync::syncing(), theme),
         Overlay::FetchingModels => draw_busy(
             frame,
