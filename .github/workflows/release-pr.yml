@@ -1,11 +1,17 @@
 name: Release PR
 
 # Changesets-driven releases (no conventional-commit parsing):
-#   push to main with pending .changeset/*.md
+#   daily development happens on `develop` (all PRs target it; contributors do
+#     NOT add change files — maintainers decide if/when to release)
+#   maintainer pushes .changeset/*.md to `develop` to cut a release
 #     → Knope consumes them on the `release` branch (Cargo.toml/Cargo.lock bump,
 #       CHANGELOG.md entry, change files deleted) and force-pushes it
-#     → opens/updates the Release PR and auto-merges it in the same run
+#     → opens/updates the Release PR (develop → main) and auto-merges it
 #     → tags `aimux/vX.Y.Z` at the merge commit and builds binaries via release.yml
+#     → back-merges main into develop so the bump + CHANGELOG sync back
+#
+# `main` is release-only: never push features there. Hotfixes also go through
+# `develop` (push it with a change file for the fastest path to a release).
 #
 # GITHUB_TOKEN cannot start a second workflow, so tagging + the binary build
 # must happen inside this same run (do not wait for the merge push).
@@ -17,6 +23,7 @@ on:
   push:
     branches:
       - main
+      - develop
 
 concurrency:
   group: release-pr-${{ github.ref }}
@@ -173,3 +180,27 @@ jobs:
     uses: ./.github/workflows/release.yml
     with:
       tag: ${{ needs.tag-and-binaries.outputs.tag }}
+
+  sync-develop:
+    name: Back-merge main into develop
+    needs: prepare-release
+    if: needs.prepare-release.outputs.merge_sha != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: develop
+          fetch-depth: 0
+      - name: Merge main back into develop
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # brings the version bump + CHANGELOG from the merged Release PR back
+          # into develop; conflict is essentially impossible (only the bot writes
+          # Cargo.toml/CHANGELOG), but fail loudly rather than diverge silently.
+          git merge --no-edit origin/main || {
+            echo "::error::Merging main into develop conflicted — resolve manually and push."
+            exit 1
+          }
+          git push origin develop
+          echo "develop synced with main"

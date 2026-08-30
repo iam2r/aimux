@@ -1,68 +1,70 @@
 # Contributing to aimux
 
 Thanks for your interest in contributing! This guide walks you through the
-workflow. Releases are fully automated — you never need to touch version
-numbers or the changelog.
+workflow. You never touch version numbers or the changelog — and you don't
+need to decide when releases happen. Maintainers cut releases from the
+`develop` branch when they see fit.
+
+## Branch model
+
+| Branch    | Purpose                                                                 |
+| --------- | ----------------------------------------------------------------------- |
+| `develop` | Integration branch. **All PRs target it.**                               |
+| `main`    | Release-only (version bumps + changelog, written by the release bot).    |
+
+Do not open PRs against `main` — they will be redirected to `develop`.
 
 ## Quick start
 
 ```bash
 git clone https://github.com/iam2r/aimux.git   # or your fork
 cd aimux
+git switch develop
 cargo test          # unit tests
 cargo fmt --check   # formatting (CI enforces)
 cargo clippy --all-targets -- -D warnings   # lints (CI enforces)
 ```
 
-CI runs on every PR: `fmt` + `clippy` + `test` on Linux, and `test` on
-Windows. Please run the same locally before pushing.
+CI runs on every PR targeting `develop`: `fmt` + `clippy` + `test` on Linux,
+and `test` on Windows. Please run the same locally before pushing.
 
 ## Making changes
 
-1. Fork the repo and create a branch from `main`:
+1. Fork the repo and create a branch from `develop`:
    `git checkout -b fix/my-fix` or `feat/my-feature`.
 2. Keep PRs small and focused — one fix or feature per PR.
 3. Commit messages follow conventional style:
    `fix(tui): accept bracketed paste`, `feat(models): ...`.
    Type + optional scope, lowercase subject. Commit messages are for humans;
-   releases are driven by change files (below), not by commits.
-4. Push and open a PR against `main`. A maintainer reviews and merges with a
-   merge commit.
+   releases are driven by maintainer-added change files, not by commits.
+4. Push and open a PR against **`develop`**. No change file needed —
+   maintainers decide if/when your change ships and write the changelog entry.
+5. A maintainer reviews and merges. First-time contributors from forks: CI
+   starts after a maintainer approves the workflow run ("Approve and run
+   workflows" button on the PR).
 
-## Required: add a change file
+## For maintainers: cutting a release
 
-Every user-visible change needs a **change file** in `.changeset/`, or the
-release bot skips your change when cutting the next version.
+1. Review what's unreleased on `develop` (merged PRs since the last tag).
+2. Add one change file per logical change to `.changeset/`:
 
-Create `.changeset/<short-slug>.md`:
+   ```markdown
+   ---
+   aimux: patch
+   ---
+   One-line summary that goes into the changelog.
+   ```
 
-```markdown
----
-aimux: patch
----
-One-line summary shown in the changelog.
-```
+   `patch` = fixes · `minor` = features/flags/UI additions · `major` =
+   breaking (discuss first). See [knope.toml](knope.toml).
+3. Push to `develop`. The release bot takes over:
+   consumes the change files → bumps `Cargo.toml` / `Cargo.lock` and updates
+   `CHANGELOG.md` on a `release` branch → opens a Release PR (develop → main)
+   and auto-merges it → tags `aimux/vX.Y.Z` → builds binaries for all
+   platforms → back-merges `main` into `develop` so the bump syncs back.
 
-Pick the bump type:
-
-| Bump    | When                                                       |
-| ------- | ---------------------------------------------------------- |
-| `patch` | Bug fixes, no new behavior                                  |
-| `minor` | New features, new flags, UI additions                       |
-| `major` | Breaking changes (rare; discuss in an issue first)          |
-
-Internal-only changes (tests, docs, CI) don't need a change file.
-See [knope.toml](knope.toml) for the exact format the bot consumes.
-
-## What happens after merge (fully automated)
-
-1. The release bot consumes pending change files on a `release` branch,
-   bumps `Cargo.toml` / `Cargo.lock`, updates `CHANGELOG.md`.
-2. It opens a Release PR and auto-merges it.
-3. It tags `aimux/vX.Y.Z` and builds binaries for all platforms
-   (GitHub Release assets).
-
-You do nothing here — merging your PR is enough.
+Hotfixes also go through `develop` (push the fix + change file there — it's
+the fastest path to a release). `main` never takes feature work.
 
 ## Reporting bugs / requesting features
 

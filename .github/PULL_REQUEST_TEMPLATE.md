@@ -1,4 +1,5 @@
 <!-- Title: conventional style, e.g. `fix(tui): accept bracketed paste` -->
+<!-- Base branch: `develop` (main is release-only) -->
 
 ## Summary
 
@@ -8,11 +9,6 @@
 
 <!-- Link the issue (`Fixes #123`) or describe the problem. -->
 
-## Change file
-
-- [ ] Added `.changeset/<slug>.md` with the right bump (`patch` / `minor` / `major`)
-      — skip only for tests/docs/CI-only changes.
-
 ## Checklist
 
 - [ ] `cargo fmt --check` passes
@@ -20,3 +16,5 @@
 - [ ] `cargo test` passes
 - [ ] Considered Windows behavior (input/rendering/paths changes)
 - [ ] Tests added/updated for parser or behavior fixes
+
+<!-- No change file needed: maintainers add it when cutting a release. -->
