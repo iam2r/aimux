@@ -78,6 +78,22 @@ change files and push again.
 Hotfixes also go through `develop` (push the fix + change file there — it's
 the fastest path to a release). `main` never takes feature work.
 
+## Local git hooks (optional but recommended)
+
+The repo ships git hooks (mirroring the cf-workers setup). They install
+automatically if you run `pnpm install` (Node 20+ and pnpm required):
+
+- **commit-msg**: conventional-commit validation via commitlint
+  (`type(scope): subject`, lowercase subject, header ≤ 100 chars).
+- **pre-commit**: formats staged `*.rs` files via rustfmt and re-stages them.
+- **pre-push**: runs `cargo clippy --all-targets -- -D warnings`.
+
+Rust-only contributors without Node can still enable the hooks with
+`git config core.hooksPath .husky/_`: commit-msg validation degrades to a
+no-op and pre-commit falls back to a non-mutating `cargo fmt --all --
+--check`. CI runs the same checks regardless, so hooks are a convenience,
+not the enforcement point.
+
 ## Reporting bugs / requesting features
 
 Please use the issue templates:
