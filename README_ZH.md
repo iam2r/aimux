@@ -211,6 +211,10 @@ Windows 上：
 - `chmod 0600` / `0700` **失败则忽略**；v1 不做 Windows ACL。
 - 路径通过注入的 `Paths`，不依赖进程 `HOME` / `USERPROFILE` 做测试隔离。
 
+## 参与贡献
+
+欢迎提交 issue 与 PR,流程见 [CONTRIBUTING.md](CONTRIBUTING.md)(需附 change file 并通过 fmt/clippy/test 检查)。
+
 ## 许可证
 
 MIT。

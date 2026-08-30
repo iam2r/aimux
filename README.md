@@ -222,6 +222,11 @@ On Windows:
 - `chmod 0600` / `0700` **failures are ignored**; v1 does not set Windows ACLs.
 - Tests inject `Paths`; they do not rely on process `HOME` / `USERPROFILE`.
 
+## Contributing
+
+Bug reports, feature requests, and PRs are welcome — see
+[CONTRIBUTING.md](CONTRIBUTING.md) for the workflow (change file + checks).
+
 ## License
 
 MIT.

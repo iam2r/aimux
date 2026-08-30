@@ -1,0 +1,41 @@
+name: Bug report
+description: Report a problem with aimux
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to file a bug! Please fill in the details below.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Steps to reproduce, expected vs actual behavior.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: aimux version
+      description: "`aimux --version`, or the tag you installed."
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - macOS
+        - Linux
+        - Windows
+    validations:
+      required: true
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal / environment
+      description: "e.g. iTerm2, Windows Terminal, kitty; over SSH? which terminal emulator locally?"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / screenshots
+      description: "`aimux` logs, panic output, or screenshots of the TUI."
