@@ -1,4 +1,4 @@
-# commit-msg: conventional-commit validation (mirrors cf-workers).
+# commit-msg: conventional-commit validation (type(scope): subject).
 # Requires node/npx; skips silently when only the Rust toolchain is installed
 # (CI runs the same checks).
 if ! command -v npx >/dev/null 2>&1; then

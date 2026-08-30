@@ -4,6 +4,7 @@
 	"private": true,
 	"description": "Git hooks / commit tooling for the aimux Rust workspace (hooks are optional — CI is the enforcing gate).",
 	"scripts": {
+		"preinstall": "npx only-allow pnpm",
 		"prepare": "husky"
 	},
 	"devDependencies": {
@@ -16,6 +17,8 @@
 		"*.rs": "rustfmt --edition 2021"
 	},
 	"engines": {
-		"node": ">=20"
-	}
+		"node": ">=20",
+		"pnpm": ">=10"
+	},
+	"packageManager": "pnpm@11.23.0"
 }

@@ -1,6 +1,5 @@
-# pre-commit: format staged Rust files via lint-staged (like cf-workers' oxfmt).
-# With node available, lint-staged formats exactly the staged *.rs files and
-# re-stages them. Without node (Rust-only contributors), fall back to a
+# pre-commit: format staged Rust files via lint-staged and re-stage them.
+# Without node (Rust-only contributors), fall back to a
 # non-mutating workspace-wide rustfmt check so formatting is still enforced.
 if command -v npx >/dev/null 2>&1; then
 	npx lint-staged --allow-empty

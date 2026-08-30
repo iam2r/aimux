@@ -80,8 +80,8 @@ the fastest path to a release). `main` never takes feature work.
 
 ## Local git hooks (optional but recommended)
 
-The repo ships git hooks (mirroring the cf-workers setup). They install
-automatically if you run `pnpm install` (Node 20+ and pnpm required):
+The repo ships git hooks. They install automatically when you run
+`pnpm install` (Node 20+ and pnpm required):
 
 - **commit-msg**: conventional-commit validation via commitlint
   (`type(scope): subject`, lowercase subject, header ≤ 100 chars).
