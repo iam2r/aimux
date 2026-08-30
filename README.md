@@ -225,7 +225,9 @@ On Windows:
 ## Contributing
 
 Bug reports, feature requests, and PRs are welcome — see
-[CONTRIBUTING.md](CONTRIBUTING.md) for the workflow (change file + checks).
+[CONTRIBUTING.md](CONTRIBUTING.md) for the workflow. All PRs target the
+`develop` branch; CI runs the checks automatically, and you don't need to
+add change files.
 
 ## License
 

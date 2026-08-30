@@ -213,7 +213,7 @@ Windows 上：
 
 ## 参与贡献
 
-欢迎提交 issue 与 PR,流程见 [CONTRIBUTING.md](CONTRIBUTING.md)(需附 change file 并通过 fmt/clippy/test 检查)。
+欢迎提交 issue 与 PR,流程见 [CONTRIBUTING.md](CONTRIBUTING.md)。所有 PR 目标分支为 `develop`,CI 自动运行检查,无需附带 change file。
 
 ## 许可证
 

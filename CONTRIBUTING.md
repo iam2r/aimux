@@ -43,6 +43,18 @@ and `test` on Windows. Please run the same locally before pushing.
    starts after a maintainer approves the workflow run ("Approve and run
    workflows" button on the PR).
 
+### PR rules enforced by CI
+
+A policy gate runs on every PR and fails with a clear message when:
+
+- the PR targets `main` instead of `develop` (only the bot's Release PR may
+  target `main`);
+- the PR adds `.changeset/` files (external contributors — that's the
+  maintainer's job at release time).
+
+Failing the gate blocks the merge, so fix the branch target or remove the
+change files and push again.
+
 ## For maintainers: cutting a release
 
 1. Review what's unreleased on `develop` (merged PRs since the last tag).
