@@ -151,6 +151,13 @@ impl SnippetPage {
         SnippetCmd::Continue
     }
 
+    /// Paste into the JSON text area, keeping newlines (bracketed paste).
+    pub fn paste_json(&mut self, text: &str) {
+        if self.json_focused() {
+            edit::paste_multiline(&mut self.text, &mut self.text_cursor, text);
+        }
+    }
+
     pub fn item_on(&self, item: &QuickItem, snippet: &serde_json::Value) -> bool {
         if item.extra_key.is_some() {
             item.extra_on(&self.extras)

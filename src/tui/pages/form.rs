@@ -410,6 +410,14 @@ impl Form {
         }
     }
 
+    /// Insert a bracketed-paste payload into the focused editable field.
+    pub fn paste(&mut self, text: &str) {
+        if self.can_edit_text() {
+            let f = &mut self.fields[self.focus];
+            crate::tui::edit::paste(&mut f.value, &mut f.cursor, text);
+        }
+    }
+
     fn shift(&mut self, delta: isize) {
         let n = self.fields.len() as isize;
         if n == 0 {
