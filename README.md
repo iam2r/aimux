@@ -30,9 +30,12 @@ AIMUX_SKIP_PATH=1 bash install.sh   # install only; do not edit shell rc
 
 ### Releases
 
-Version bumps are driven by **changeset files** (via [Knope](https://knope.tech)), not commit messages:
+Releases are maintainer-driven, still powered by **changeset files** (via
+[Knope](https://knope.tech)), not commit messages:
 
-1. Add a change file to your PR — `.changeset/<name>.md`:
+1. All development happens on the `develop` branch (`main` is release-only).
+   Contributors never add change files — maintainers write them when deciding
+   to cut a release: `.changeset/<name>.md` on `develop`:
 
    ```markdown
    ---
@@ -41,8 +44,11 @@ Version bumps are driven by **changeset files** (via [Knope](https://knope.tech)
    One-line summary for the changelog.
    ```
 
-2. On merge to `main`, CI consumes pending change files, opens a **Release PR** that bumps `Cargo.toml` and `CHANGELOG.md`, and auto-merges it.
-3. The same run tags `aimux/vX.Y.Z` and builds installers and archives. No local tooling required.
+2. Pushing change files to `develop` makes CI consume them, open a
+   **Release PR** (develop → main) that bumps `Cargo.toml` and `CHANGELOG.md`,
+   and auto-merge it.
+3. The same run tags `aimux/vX.Y.Z`, builds installers and archives, and
+   back-merges `main` into `develop`. No local tooling required.
 
 From source (Rust stable):
 
@@ -214,7 +220,7 @@ cargo clippy --all-targets -- -D warnings
 
 ## Windows
 
-Prefer the PowerShell one-liner above. GitHub Actions: `ubuntu-latest` (fmt + clippy + test) and `windows-latest` (`cargo test`). Tags `v*` publish Linux/macOS/Windows release assets.
+Prefer the PowerShell one-liner above. GitHub Actions: PRs get a policy gate plus `fmt` + `clippy` + `test` on `ubuntu-latest` and `test` on Windows; the release bot tags `aimux/vX.Y.Z` and publishes Linux/macOS/Windows release assets (a manual `v*` tag push triggers the same build).
 
 On Windows:
 

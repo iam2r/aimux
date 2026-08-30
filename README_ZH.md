@@ -30,9 +30,9 @@ AIMUX_SKIP_PATH=1 bash install.sh   # 只安装，不改 shell rc
 
 ### 发布
 
-版本号由 **changeset 文件**驱动（工具为 [Knope](https://knope.tech)），不解析提交消息：
+发布由维护者驱动，仍基于 **changeset 文件**（工具为 [Knope](https://knope.tech)），不解析提交消息：
 
-1. 在 PR 里加一个变更文件 `.changeset/<name>.md`：
+1. 所有开发都在 `develop` 分支（`main` 仅用于发布）。贡献者**不需要**添加变更文件——是否发版、写什么进 changelog 由维护者决定，在 `develop` 上添加 `.changeset/<name>.md`：
 
    ```markdown
    ---
@@ -41,8 +41,8 @@ AIMUX_SKIP_PATH=1 bash install.sh   # 只安装，不改 shell rc
    写进 changelog 的一句话。
    ```
 
-2. 合进 `main` 后，CI 消费这些文件、开 **Release PR**（改 `Cargo.toml` 和 `CHANGELOG.md`）并自动合并。
-3. 同一次 run 里打 `aimux/vX.Y.Z` 标签并编译安装包。本地无需安装任何工具。
+2. 把变更文件推到 `develop` 后，CI 消费这些文件、开 **Release PR**（develop → main，改 `Cargo.toml` 和 `CHANGELOG.md`）并自动合并。
+3. 同一次 run 里打 `aimux/vX.Y.Z` 标签、编译安装包，并把 `main` 回合并到 `develop`。本地无需安装任何工具。
 
 从源码（Rust stable）：
 
@@ -203,7 +203,7 @@ cargo clippy --all-targets -- -D warnings
 
 ## Windows
 
-优先用上面的 PowerShell 一键安装。GitHub Actions：每次 push 在 `ubuntu-latest`（fmt + clippy + test）和 `windows-latest`（`cargo test`）跑 CI。打 `v*` 标签会发布 Linux / macOS / Windows 的 Release。
+优先用上面的 PowerShell 一键安装。GitHub Actions:PR 走策略门禁 + `ubuntu-latest`（fmt + clippy + test）和 Windows（`cargo test`）;发布 bot 打 `aimux/vX.Y.Z` 标签并发布 Linux / macOS / Windows 的 Release(手工推 `v*` 标签也会触发同样的构建)。
 
 Windows 上：
 
