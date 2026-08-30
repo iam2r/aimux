@@ -26,6 +26,33 @@ pub fn insert(s: &mut String, cursor: &mut usize, c: char) -> bool {
     true
 }
 
+/// Insert a bracketed-paste payload at the cursor, dropping control
+/// characters (clipboard newlines/tabs have no meaning in single-line
+/// fields). True if anything was inserted.
+pub fn paste(s: &mut String, cursor: &mut usize, text: &str) -> bool {
+    paste_with(s, cursor, text, false)
+}
+
+/// Like `paste` but keeps newlines — for multi-line editors (snippet JSON).
+pub fn paste_multiline(s: &mut String, cursor: &mut usize, text: &str) -> bool {
+    paste_with(s, cursor, text, true)
+}
+
+fn paste_with(s: &mut String, cursor: &mut usize, text: &str, keep_newlines: bool) -> bool {
+    *cursor = clamp(s, *cursor);
+    let clean: String = text
+        .chars()
+        .filter(|c| *c == '\n' && keep_newlines || !c.is_control())
+        .collect();
+    if clean.is_empty() {
+        return false;
+    }
+    let at = byte(s, *cursor);
+    s.insert_str(at, &clean);
+    *cursor += clean.chars().count();
+    true
+}
+
 pub fn backspace(s: &mut String, cursor: &mut usize) -> bool {
     *cursor = clamp(s, *cursor);
     if *cursor == 0 {
@@ -153,6 +180,30 @@ mod tests {
             end_spans[1].style.add_modifier,
             ratatui::style::Modifier::UNDERLINED
         );
+    }
+
+    #[test]
+    fn paste_inserts_in_order_and_skips_control_chars() {
+        let mut s = String::from("ad");
+        let mut c = 1;
+        assert!(paste(&mut s, &mut c, "bc"));
+        assert_eq!(s, "abcd");
+        assert_eq!(c, 3);
+        // clipboard newlines/tabs must not leak into single-line fields
+        c = s.chars().count();
+        assert!(paste(&mut s, &mut c, "https://x\n\t"));
+        assert_eq!(s, "abcdhttps://x");
+        // mid-string paste keeps order and advances the caret
+        let mut s = String::from("你好");
+        let mut c = 1;
+        assert!(paste_multiline(&mut s, &mut c, "啊\n啊"));
+        assert_eq!(s, "你啊\n啊好");
+        assert_eq!(c, 4);
+        // nothing but control chars → nothing inserted
+        let mut s = String::new();
+        let mut c = 0;
+        assert!(!paste(&mut s, &mut c, "\r\n"));
+        assert_eq!(s, "");
     }
 
     #[test]

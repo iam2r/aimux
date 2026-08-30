@@ -56,10 +56,13 @@ async fn probe(
 /// `aimux use`, so names/ids/substrings all work.
 pub async fn test_provider(store: &Store, query: &str) -> Result<SpeedResult> {
     let provider = crate::switch::resolve(store, query, None)?;
-    test_provider_inner(provider).await
+    test_provider_inner(&client()?, provider).await
 }
 
-async fn test_provider_inner(provider: &crate::store::Provider) -> Result<SpeedResult> {
+async fn test_provider_inner(
+    client: &reqwest::Client,
+    provider: &crate::store::Provider,
+) -> Result<SpeedResult> {
     if provider.official {
         anyhow::bail!(
             "'{}' is the official native-login row — there is no custom endpoint to probe",
@@ -70,8 +73,7 @@ async fn test_provider_inner(provider: &crate::store::Provider) -> Result<SpeedR
     if url.is_empty() {
         anyhow::bail!("provider '{}' has no base_url to test", provider.name);
     }
-    let client = client()?;
-    let (latency, status, error) = probe(&client, &url).await;
+    let (latency, status, error) = probe(client, &url).await;
     Ok(SpeedResult {
         app: provider.app,
         name: provider.name.clone(),
@@ -88,7 +90,7 @@ pub async fn test_provider_by_id(store: &Store, id: &str) -> Result<SpeedResult>
         .providers
         .get(id)
         .ok_or_else(|| anyhow::anyhow!("provider '{id}' not found"))?;
-    test_provider_inner(provider).await
+    test_provider_inner(&client()?, provider).await
 }
 
 /// CLI rendering: one line per probe with a human latency/status verdict.
@@ -166,7 +168,18 @@ mod tests {
             "codex-dead".into(),
             provider_at("dead", "http://127.0.0.1:1/v1"),
         );
-        let result = run(&store, "dead").unwrap();
+        // Bypass system proxies (HTTP_PROXY etc.): through a local proxy a
+        // dead backend answers 502 and looks reachable. We need a real
+        // connection failure here.
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(TIMEOUT_SECS))
+            .build()
+            .unwrap();
+        let provider = store.providers.get("codex-dead").unwrap();
+        let result =
+            crate::webdav::block_on(async { test_provider_inner(&client, provider).await })
+                .unwrap();
         assert!(result.latency.is_none());
         assert!(result.error.is_some(), "{result:?}");
     }

@@ -316,6 +316,18 @@ impl App {
         false
     }
 
+    /// Route a bracketed-paste payload to whatever text editor has focus.
+    pub fn handle_paste(&mut self, text: &str) {
+        match &mut self.overlay {
+            Overlay::Form(form) => form.paste(text),
+            Overlay::ModelPicker(picker) => picker.paste_filter(text),
+            Overlay::CatalogEditor { editor } => editor.paste(text),
+            Overlay::SlotEditor { editor } => editor.paste(text),
+            Overlay::SnippetEditor(page) => page.paste_json(text),
+            _ => {}
+        }
+    }
+
     fn handle_confirm_key(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => self.confirm_yes(),

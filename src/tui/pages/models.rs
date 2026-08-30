@@ -95,6 +95,13 @@ impl ModelPicker {
             .collect()
     }
 
+    /// Paste into the filter input while it is focused (bracketed paste).
+    pub fn paste_filter(&mut self, text: &str) {
+        if self.filtering {
+            edit::paste(&mut self.filter, &mut self.filter_cursor, text);
+        }
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) -> PickerCmd {
         if self.filtering {
             return self.handle_filter_key(key);
@@ -377,6 +384,13 @@ impl CatalogEditor {
     pub fn slot_row(&self, slot: &str) -> Option<usize> {
         let id = self.slot_owner.get(slot)?;
         self.rows.iter().position(|r| r.id == *id)
+    }
+
+    /// Paste into the cell being edited (bracketed paste).
+    pub fn paste(&mut self, text: &str) {
+        if self.editing {
+            edit::paste(&mut self.buf, &mut self.buf_cursor, text);
+        }
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) -> CatalogCmd {
@@ -761,6 +775,13 @@ impl SlotEditor {
             None
         } else {
             self.slots.get(self.row - 1).map(|s| s.key)
+        }
+    }
+
+    /// Paste into the slot value being edited (bracketed paste).
+    pub fn paste(&mut self, text: &str) {
+        if self.editing {
+            edit::paste(&mut self.buf, &mut self.buf_cursor, text);
         }
     }
 

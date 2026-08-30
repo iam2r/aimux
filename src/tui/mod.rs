@@ -29,7 +29,12 @@ pub fn run(paths: Paths) -> Result<()> {
     }
     let mut app = App::new(paths, store);
     let mut terminal = ratatui::init();
+    // One paste = one Event::Paste instead of a flood of keystroke events.
+    // Terminals without bracketed-paste support ignore the sequence and
+    // pastes still arrive as plain keys; the drain loop below covers those.
+    let _ = crossterm::execute!(std::io::stdout(), event::EnableBracketedPaste);
     let result = event_loop(&mut terminal, &mut app);
+    let _ = crossterm::execute!(std::io::stdout(), event::DisableBracketedPaste);
     ratatui::restore();
     result
 }
@@ -44,14 +49,28 @@ fn event_loop(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<
         if !event::poll(Duration::from_millis(250))? {
             continue;
         }
-        match event::read()? {
-            Event::Key(key) if key.kind == KeyEventKind::Press => {
-                if app.handle_key(key) {
-                    break;
+        // Drain every event already queued before repainting: one draw per
+        // input burst instead of one per keystroke. Paste floods and held
+        // auto-repeat keys otherwise arrive faster than full repaints on
+        // slow terminals (WSL bridges are the worst) — input visibly falls
+        // behind, one character at a time, and keeps replaying after the
+        // key is released.
+        let mut quit = false;
+        loop {
+            match event::read()? {
+                Event::Key(key) if key.kind == KeyEventKind::Press => {
+                    quit |= app.handle_key(key);
                 }
+                Event::Paste(text) => app.handle_paste(&text),
+                Event::Resize(_, _) => {}
+                _ => {}
             }
-            Event::Resize(_, _) => {}
-            _ => {}
+            if quit || !event::poll(Duration::ZERO)? {
+                break;
+            }
+        }
+        if quit {
+            break;
         }
     }
     Ok(())
@@ -66,6 +85,9 @@ fn run_try_job(
     job: crate::try_launch::TryJob,
 ) -> Result<()> {
     let name = job.provider_name.clone();
+    // The trial CLI owns the terminal now — don't leave our paste mode on
+    // for a child that never asked for it.
+    let _ = crossterm::execute!(std::io::stdout(), event::DisableBracketedPaste);
     ratatui::restore();
     let result = job.run_detached();
     // resume even when launch failed; report through the status bar
@@ -76,6 +98,7 @@ fn run_try_job(
         Ok(())
     })();
     resumed?;
+    let _ = crossterm::execute!(std::io::stdout(), event::EnableBracketedPaste);
     app.note_try_result(name, result);
     Ok(())
 }
