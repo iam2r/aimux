@@ -3,17 +3,52 @@ name: CI
 on:
   push:
   pull_request:
-    # PRs target `develop`; `main` is release-only (bot Release PRs skip CI —
-    # their content is just the version bump + CHANGELOG, already gated by
-    # pending change files).
     branches:
       - develop
+      - main
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  gate:
+    name: PR policy gate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enforce contribution rules
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          BASE: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          ASSOC: ${{ github.event.pull_request.author_association }}
+        run: |
+          set -euo pipefail
+
+          # Rule 1: PRs target `develop` only. `main` is release-only and only
+          # accepts the bot's Release PR (head branch `release`).
+          if [ "$BASE" = "main" ] && [ "$HEAD_REF" != "release" ]; then
+            echo "::error::PRs must target the 'develop' branch — 'main' is release-only (bot Release PRs only)."
+            echo "::error::请将 PR 目标分支改为 develop;main 仅用于发布,不接受功能/修复 PR。"
+            exit 1
+          fi
+
+          # Rule 2: external contributors do not add change files — maintainers
+          # write them when deciding to cut a release.
+          FILES="$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --paginate --jq '.[].filename')"
+          if echo "$FILES" | grep -q '^\.changeset/' \
+            && ! echo "$ASSOC" | grep -Eq 'MEMBER|COLLABORATOR|OWNER'; then
+            echo "::error::Do not add .changeset/ files in a PR — maintainers decide if/when to release and write the changelog."
+            echo "::error::外部 PR 请勿包含 .changeset/ 文件:是否发版由维护者决定,变更说明由维护者统一撰写。"
+            exit 1
+          fi
+
+          echo "PR policy OK (base=$BASE head=$HEAD_REF assoc=$ASSOC)"
+
   unix:
+    name: fmt+clippy+test (linux)
+    needs: gate
+    if: github.base_ref == 'develop'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -28,6 +63,9 @@ jobs:
         run: cargo test
 
   windows:
+    name: test (windows)
+    needs: gate
+    if: github.base_ref == 'develop'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
