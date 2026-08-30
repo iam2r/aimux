@@ -12,7 +12,12 @@ cargo fmt                               # before every commit
 cargo clippy --all-targets -- -D warnings
 ```
 
-Releases are changeset-driven (Knope), not commit-message-driven: add a `.changeset/<name>.md` (frontmatter `aimux: minor|patch|major`) to your PR; CI consumes it into a Release PR that bumps `Cargo.toml`/`Cargo.lock`/`CHANGELOG.md`, tags `aimux/v{version}`, and `release.yml` builds installers (Linux musl, macOS universal, Windows zip). Never bump the version by hand.
+## Branching, releases, and hooks
+
+- Branch model: `develop` is the integration branch — **all PRs target it**; `main` is release-only (version bump + CHANGELOG written by the bot). Direct pushes to `main` are blocked by branch protection.
+- PR policy (enforced by a CI gate): PRs targeting `main` are rejected (bot Release PRs excepted); external PRs must not add `.changeset/` files.
+- Releases are maintainer-driven: when cutting a release, add `.changeset/<name>.md` (frontmatter `aimux: minor|patch|major`) **on `develop`** and push — Knope consumes it into a Release PR (develop → main), tags `aimux/v{version}`, builds installers (Linux musl, macOS, Windows), and back-merges `main` into `develop` so the bump syncs back. Never bump versions by hand; release history lives in `CHANGELOG.md`.
+- Commits follow conventional style (`type(scope): lowercase subject`), enforced by commitlint in a commit-msg hook. Local hooks (install via `pnpm install`, Node 20+): commit-msg commitlint, pre-commit rustfmt on staged files via lint-staged, pre-push `cargo clippy -D warnings`; pnpm is the only supported package manager (`packageManager` is pinned, npm/yarn installs are rejected). Rust-only contributors can enable degraded hooks via `git config core.hooksPath .husky/_`. Details: `CONTRIBUTING.md`, `knope.toml`, `commitlint.config.mjs`.
 
 Tests must never touch host configs. Use `Paths::for_test` (or set `AIMUX_CONFIG_DIR`); never write `~/.claude`, `~/.codex`, `~/.config/opencode`, or `~/.pi`.
 
