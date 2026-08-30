@@ -1,0 +1,8 @@
+# commit-msg: conventional-commit validation (mirrors cf-workers).
+# Requires node/npx; skips silently when only the Rust toolchain is installed
+# (CI runs the same checks).
+if ! command -v npx >/dev/null 2>&1; then
+	echo "commit-msg: npx not found — skipping commitlint (install node/pnpm + run 'pnpm install' to enable)."
+	exit 0
+fi
+npx commitlint -e

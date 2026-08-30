@@ -1,0 +1,2 @@
+# pre-push: lint the whole workspace (fast local gate; CI runs fmt+clippy+test).
+cargo clippy --all-targets -- -D warnings

@@ -1,0 +1,21 @@
+{
+	"name": "aimux",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Git hooks / commit tooling for the aimux Rust workspace (hooks are optional — CI is the enforcing gate).",
+	"scripts": {
+		"prepare": "husky"
+	},
+	"devDependencies": {
+		"@commitlint/cli": "^20.4.2",
+		"@commitlint/config-conventional": "^20.4.2",
+		"husky": "^9.1.7",
+		"lint-staged": "^16.2.7"
+	},
+	"lint-staged": {
+		"*.rs": "rustfmt --edition 2021"
+	},
+	"engines": {
+		"node": ">=20"
+	}
+}
