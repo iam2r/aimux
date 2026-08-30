@@ -14,7 +14,7 @@ cargo clippy --all-targets -- -D warnings
 
 ## Branching, releases, and hooks
 
-- Branch model: `develop` is the integration branch — **all PRs target it**; `main` is release-only (version bump + CHANGELOG written by the bot). Direct pushes to `main` are blocked by branch protection.
+- Branch model: `develop` is the integration branch — **all PRs target it**; `main` is release-only (version bump + CHANGELOG written by the bot). Branch protection blocks direct pushes and non-gate PRs to `main`; the owner may fast-forward `main` to `develop` for non-release content (docs/CI/tooling) — `git push origin develop:main`, fast-forward only.
 - PR policy (enforced by a CI gate): PRs targeting `main` are rejected (bot Release PRs excepted); external PRs must not add `.changeset/` files.
 - Releases are maintainer-driven: when cutting a release, add `.changeset/<name>.md` (frontmatter `aimux: minor|patch|major`) **on `develop`** and push — Knope consumes it into a Release PR (develop → main), tags `aimux/v{version}`, builds installers (Linux musl, macOS, Windows), and back-merges `main` into `develop` so the bump syncs back. Never bump versions by hand; release history lives in `CHANGELOG.md`.
 - Commits follow conventional style (`type(scope): lowercase subject`), enforced by commitlint in a commit-msg hook. Local hooks (install via `pnpm install`, Node 20+): commit-msg commitlint, pre-commit rustfmt on staged files via lint-staged, pre-push `cargo clippy -D warnings`; pnpm is the only supported package manager (`packageManager` is pinned, npm/yarn installs are rejected). Rust-only contributors can enable degraded hooks via `git config core.hooksPath .husky/_`. Details: `CONTRIBUTING.md`, `knope.toml`, `commitlint.config.mjs`.
@@ -46,6 +46,8 @@ herdr tab close <tab_id>
 - `settings.rs` — apps mode (auto/manual) + language. Auto detection = CLI binary on `PATH`, nothing else.
 - `backup.rs`, `cloud.rs`, `webdav.rs` — snapshot rotation and WebDAV sync under the built-in namespace `aimux-sync`.
 - `tui/` — ratatui app. Copy goes through `i18n.rs` (English default, zh optional); never hardcode Chinese in widgets; never `eprintln` inside the TUI.
+- `import.rs` — `aimux import`: one-shot cc-switch migration (providers + WebDAV credentials) into the store; never writes live configs.
+- `try_launch.rs` — `aimux try <PROVIDER>`: launch a real CLI against a provider with a throwaway config dir (official override env var per app); live configs are never read or written, temp dir removed on exit.
 - `update.rs` — self-update from GitHub Releases with SHA-256 verification.
 
 ## Core invariants
