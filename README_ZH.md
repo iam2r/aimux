@@ -2,7 +2,7 @@
 
 [English](README.md) 是规范语言。本页为中文译本。
 
-轻量本地工具：在 **Claude Code / Codex / OpenCode / Pi Coding Agent** 之间切换供应商，并做本地轮转备份与 WebDAV 云备份。无 GUI。无参数启动 TUI，子命令给脚本。
+轻量本地工具：在 **Claude Code / Codex / OpenCode / Pi Coding Agent** 之间切换供应商，并做本地轮转备份与 WebDAV 或 GitHub Gist 云备份。无 GUI。无参数启动 TUI，子命令给脚本。
 
 不做 Proxy、MCP 管理、Skills、会话/用量、OAuth 账号、daemon、Gemini CLI。
 
@@ -53,7 +53,7 @@ cargo install --path .
 # 或: cargo build --release   → target/release/apmux
 ```
 
-配置目录默认 `$HOME/.apmux`（`store.json`、`webdav.json`、`backups/`）。可用 `APMUX_CONFIG_DIR` 覆盖。
+配置目录默认 `$HOME/.apmux`（`store.json`、`webdav.json`、`gist.json`、`backups/`）。可用 `APMUX_CONFIG_DIR` 覆盖。
 
 ## 从 cc-switch 迁移
 
@@ -155,6 +155,23 @@ TUI：`s` → `e`，填 URL / 用户 / 密码。命名空间单独一行只读�
 `push` / `pull` 覆盖 store 前会打一份时间戳备份。冲突时拒绝 push，用 `pull` 或 `--force`。`status` 永不打印密码。
 
 凭证在 `$APMUX_CONFIG_DIR/webdav.json`，权限 `0600`。
+
+## GitHub Gist
+
+同一对 `store.json` + `manifest.json`，改存到**私有 gist** 而不是 WebDAV 目录。仅 CLI（暂无 TUI 页面）。
+
+```bash
+apmux sync gist setup '<github-token>'
+apmux sync gist push [--force]
+apmux sync gist pull [--force]
+apmux sync gist status
+```
+
+`setup` 会创建一个以当前本地 store 为初始内容的 gist；或按 description 里的同步格式标记找到已有的 gist——换一台机器也能自动发现同一个 gist。`--gist <id或URL>` 直接指定某个 gist、跳过搜索。
+
+token 需要 **Gists 读写**权限（建议用只有这一项权限的 fine-grained PAT）。gist 一律创建为私密；`status` 永不打印 token。凭证在 `$APMUX_CONFIG_DIR/gist.json`，权限 `0600`。
+
+`push` / `pull` 行为与 WebDAV 后端完全一致：覆盖前打时间戳备份、冲突拒绝 push、`--force` 强制覆盖。
 
 ## 项目 `opencode.json` 遮蔽
 
