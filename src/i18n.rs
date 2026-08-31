@@ -1,6 +1,6 @@
 //! UI strings. English is the default. Chinese is a translation.
 //!
-//! Resolution: `--lang` / `AIMUX_LANG` > `LC_ALL`/`LANG` (zh* → Chinese) > English.
+//! Resolution: `--lang` / `APMUX_LANG` (legacy `AIMUX_LANG` also accepted) > `LC_ALL`/`LANG` (zh* → Chinese) > English.
 //! CLI clap help stays English. TUI and TUI-driven prompts use this table.
 
 use std::cell::Cell;
@@ -29,7 +29,7 @@ pub fn init(explicit: Option<&str>) {
     init_chain(explicit, None);
 }
 
-/// TUI: `--lang` / `AIMUX_LANG` > saved settings > locale > English.
+/// TUI: `--lang` / `APMUX_LANG` (legacy `AIMUX_LANG` also accepted) > saved settings > locale > English.
 pub fn init_tui(explicit: Option<&str>, saved: Option<&str>) {
     init_chain(explicit, saved);
 }
