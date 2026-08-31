@@ -1,6 +1,6 @@
 # apmux
 
-Lightweight local tool to **switch providers** for Claude Code, Codex, OpenCode, and Pi Coding Agent, with rotating local backups and WebDAV cloud backup. No GUI. Run `apmux` with no arguments for the TUI, or use subcommands in scripts.
+Lightweight local tool to **switch providers** for Claude Code, Codex, OpenCode, and Pi Coding Agent, with rotating local backups and WebDAV or GitHub Gist cloud backup. No GUI. Run `apmux` with no arguments for the TUI, or use subcommands in scripts.
 
 Out of scope: proxy, MCP management, skills, sessions/usage, OAuth account managers, daemon, Gemini CLI.
 
@@ -59,7 +59,7 @@ cargo install --path .
 # or: cargo build --release   → target/release/apmux
 ```
 
-Config lives in `$HOME/.apmux` (`store.json`, `webdav.json`, `backups/`). Override with `APMUX_CONFIG_DIR`.
+Config lives in `$HOME/.apmux` (`store.json`, `webdav.json`, `gist.json`, `backups/`). Override with `APMUX_CONFIG_DIR`.
 
 ## Migrate from cc-switch
 
@@ -172,6 +172,23 @@ TUI: `s` → `e`, fill URL / user / password. Namespace is a separate read-only 
 `push` / `pull` take a timestamp backup before overwriting the store. On conflict, push is refused; `pull` or `--force`. `status` never prints the password.
 
 Credentials: `$APMUX_CONFIG_DIR/webdav.json`, mode `0600`.
+
+## GitHub Gist
+
+The same `store.json` + `manifest.json` pair, stored in a **secret gist** instead of a WebDAV folder. CLI only (no TUI page).
+
+```bash
+apmux sync gist setup '<github-token>'
+apmux sync gist push [--force]
+apmux sync gist pull [--force]
+apmux sync gist status
+```
+
+`setup` creates a gist seeded with your current local store, or finds an existing one by the sync-format marker in its description — so a second machine discovers the same gist. `--gist <id-or-url>` pins a specific gist and skips the search.
+
+The token needs **Gists read/write** (a fine-grained PAT with that single permission is ideal). Gists are always created secret; `status` never prints the token. Credentials: `$APMUX_CONFIG_DIR/gist.json`, mode `0600`.
+
+`push` / `pull` behave exactly like the WebDAV backend: timestamp backup before overwrite, conflict refusal, `--force` to override.
 
 ## Project `opencode.json` shadowing
 
