@@ -6,14 +6,14 @@ $Repo = if ($env:APMUX_REPO) { $env:APMUX_REPO } else { "iam2r/apmux" }
 $InstallDir = if ($env:APMUX_INSTALL_DIR) { $env:APMUX_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "apmux\bin" }
 $SkipPath = $env:APMUX_SKIP_PATH -eq "1"
 $Version = if ($args.Count -ge 1 -and $args[0]) { $args[0] } else { "latest" }
-if ($Version -ne "latest" -and $Version -notmatch '^v') { $Version = "v$Version" }
+if ($Version -ne "latest" -and $Version -notmatch '^v' -and $Version -notmatch '/') { $Version = "v$Version" }
 
 $Asset = "apmux-windows-x64.zip"
 $Releases = "https://github.com/$Repo/releases"
 $Url = if ($Version -eq "latest") {
     "$Releases/latest/download/$Asset"
 } else {
-    "$Releases/download/$Version/$Asset"
+    "$Releases/download/apmux/$Version/$Asset"
 }
 $Target = Join-Path $InstallDir "apmux.exe"
 
@@ -24,9 +24,19 @@ function Write-Err($msg) { Write-Host "  error: $msg" -ForegroundColor Red }
 $Tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("apmux-install-" + [guid]::NewGuid().ToString("n"))
 New-Item -ItemType Directory -Path $Tmp | Out-Null
 try {
-    Write-Info "Downloading $Asset"
     $zip = Join-Path $Tmp $Asset
-    Invoke-WebRequest -Uri $Url -OutFile $zip -UseBasicParsing
+    Write-Info "Downloading $Asset"
+    try {
+        Invoke-WebRequest -Uri $Url -OutFile $zip -UseBasicParsing
+    } catch {
+        if ($Version -ne "latest") {
+            Write-Warn "Version $Version not found; falling back to the latest release."
+            $Url = "$Releases/latest/download/$Asset"
+            Invoke-WebRequest -Uri $Url -OutFile $zip -UseBasicParsing
+        } else {
+            throw
+        }
+    }
 
     Write-Info "Extracting archive"
     Expand-Archive -Path $zip -DestinationPath $Tmp -Force

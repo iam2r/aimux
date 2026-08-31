@@ -267,17 +267,6 @@ impl DavClient {
             other => anyhow::bail!("PUT {} failed: HTTP {other}", redact_url(url)),
         }
     }
-
-    /// DELETE a remote file or collection (best-effort at the protocol level;
-    /// callers decide how strict to be).
-    pub(crate) async fn delete(&self, url: &str) -> Result<()> {
-        let (status, _) = self.send(Method::DELETE, url, None, &[], true).await?;
-        match status.as_u16() {
-            200 | 202 | 204 | 404 => Ok(()),
-            401 | 403 => anyhow::bail!("webdav auth failed"),
-            other => anyhow::bail!("DELETE {} failed: HTTP {other}", redact_url(url)),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -565,11 +554,6 @@ mod tests {
         assert!(
             log.iter().any(|l| l.starts_with("MKCOL /dav/apmux-sync")),
             "expected MKCOL of user path, got {log:?}"
-        );
-        assert!(
-            !log.iter()
-                .any(|l| l.contains("/aimux") && !l.contains("/apmux-sync")),
-            "must not invent /aimux: {log:?}"
         );
         let st = srv.state.lock().unwrap();
         assert!(st.collections.contains("/dav"));

@@ -13,15 +13,11 @@ pub fn mask_key(key: &str) -> String {
     format!("{prefix}…{suffix}")
 }
 
-/// `APMUX_SHOW_SECRETS=1` prints full keys (legacy `AIMUX_SHOW_SECRETS` also
-/// honored). Dangerous: keys land in terminal scrollback, logs, and CI
-/// artifacts. Default is masked.
+/// `APMUX_SHOW_SECRETS=1` prints full keys. Dangerous: keys land in
+/// terminal scrollback, logs, and CI artifacts. Default is masked.
 pub fn show_secrets() -> bool {
     matches!(
         env::var(crate::name::ENV_SHOW_SECRETS),
-        Ok(v) if v == "1"
-    ) || matches!(
-        env::var(crate::name::LEGACY_ENV_SHOW_SECRETS),
         Ok(v) if v == "1"
     )
 }

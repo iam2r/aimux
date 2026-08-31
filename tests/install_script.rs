@@ -82,6 +82,11 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 printf '%s' "$url" > "${APMUX_TEST_LOG_DIR}/last-url"
+if [ -n "${APMUX_TEST_FAIL_PATTERN:-}" ]; then
+  case "$url" in
+    *"${APMUX_TEST_FAIL_PATTERN}"*) exit 1 ;;
+  esac
+fi
 cp "${APMUX_TEST_ARCHIVE}" "$output"
 "#;
         write_exec(&fakebin.join("curl"), curl);
@@ -190,7 +195,7 @@ fn skip_path_does_not_touch_rc() {
 }
 
 #[test]
-fn version_arg_is_prefixed() {
+fn version_arg_resolves_to_apmux_prefixed_tag() {
     let h = Harness::new("Linux", "x86_64");
     let path = format!(
         "{}:{}",
@@ -211,5 +216,36 @@ fn version_arg_is_prefixed() {
         .unwrap();
     assert_ok(&out);
     let url = fs::read_to_string(h.logs_dir.join("last-url")).unwrap();
-    assert!(url.contains("/download/v0.1.0/"), "url={url}");
+    assert!(url.contains("/download/apmux/v0.1.0/"), "url={url}");
+}
+
+#[test]
+fn version_arg_fallback_on_download_failure() {
+    let h = Harness::new("Linux", "x86_64");
+    let path = format!(
+        "{}:{}",
+        h.fakebin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let out = Command::new("bash")
+        .arg(install_script())
+        .arg("v0.1.18")
+        .env("HOME", &h.home)
+        .env("PATH", &path)
+        .env("APMUX_INSTALL_DIR", &h.install_dir)
+        .env("APMUX_TEST_LOG_DIR", &h.logs_dir)
+        .env("APMUX_TEST_ARCHIVE", h.archive_path())
+        .env("SHELL", "/bin/bash")
+        .env("APMUX_SKIP_PATH", "1")
+        .env("APMUX_TEST_FAIL_PATTERN", "/apmux/v0.1.18/")
+        .output()
+        .unwrap();
+    assert_ok(&out);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(stderr.contains("falling back"), "stderr={stderr}");
+    let installed = h.install_dir.join("apmux");
+    assert!(
+        installed.is_file(),
+        "binary must be installed after fallback"
+    );
 }
