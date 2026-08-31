@@ -122,6 +122,10 @@ impl Paths {
         self.config_dir.join("webdav.json")
     }
 
+    pub fn gist_file(&self) -> PathBuf {
+        self.config_dir.join("gist.json")
+    }
+
     pub fn log_file(&self) -> PathBuf {
         self.config_dir.join(crate::name::LOG_FILE)
     }

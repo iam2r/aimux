@@ -1,6 +1,6 @@
 [package]
 name = "apmux"
-version = "0.1.21"
+version = "0.1.22"
 edition = "2021"
 description = "Lightweight AI CLI provider switcher with backup & cloud sync"
 license = "MIT"

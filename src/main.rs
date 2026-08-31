@@ -3,6 +3,7 @@ mod backup;
 mod cloud;
 mod error;
 mod fsutil;
+mod gist;
 mod i18n;
 mod import;
 mod mask;
@@ -225,6 +226,35 @@ enum SyncAction {
         force: bool,
     },
     Status,
+    /// Cloud sync via GitHub Gist
+    Gist {
+        #[command(subcommand)]
+        action: GistAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum GistAction {
+    /// Save a GitHub token and create (or find) the sync gist
+    Setup {
+        /// GitHub token with Gists read/write access
+        token: String,
+        /// Existing gist id or URL; skips the marker search
+        #[arg(long)]
+        gist: Option<String>,
+    },
+    /// Upload the local store to the gist
+    Push {
+        #[arg(long)]
+        force: bool,
+    },
+    /// Download the gist store and apply it
+    Pull {
+        #[arg(long)]
+        force: bool,
+    },
+    /// Show local vs remote sync state
+    Status,
 }
 
 fn main() {
@@ -353,6 +383,12 @@ fn run_command(cmd: Commands) -> Result<()> {
             SyncAction::Push { force } => cmd_sync_push(force),
             SyncAction::Pull { force } => cmd_sync_pull(force),
             SyncAction::Status => cmd_sync_status(),
+            SyncAction::Gist { action } => match action {
+                GistAction::Setup { token, gist } => cmd_gist_setup(token, gist),
+                GistAction::Push { force } => cmd_gist_push(force),
+                GistAction::Pull { force } => cmd_gist_pull(force),
+                GistAction::Status => cmd_gist_status(),
+            },
         },
         Commands::Import {
             db,
@@ -673,6 +709,33 @@ fn cmd_sync_pull(force: bool) -> Result<()> {
 fn cmd_sync_status() -> Result<()> {
     let paths = Paths::from_env()?;
     print!("{}", cloud::status(&paths)?);
+    Ok(())
+}
+
+fn cmd_gist_setup(token: String, gist: Option<String>) -> Result<()> {
+    let paths = Paths::from_env()?;
+    let id = gist::setup(&paths, token, gist)?;
+    println!("gist configured: {id}");
+    Ok(())
+}
+
+fn cmd_gist_push(force: bool) -> Result<()> {
+    let paths = Paths::from_env()?;
+    let sha = gist::push(&paths, force)?;
+    println!("pushed {sha}");
+    Ok(())
+}
+
+fn cmd_gist_pull(force: bool) -> Result<()> {
+    let paths = Paths::from_env()?;
+    let sha = gist::pull(&paths, force)?;
+    println!("pulled {sha}");
+    Ok(())
+}
+
+fn cmd_gist_status() -> Result<()> {
+    let paths = Paths::from_env()?;
+    print!("{}", gist::status(&paths)?);
     Ok(())
 }
 

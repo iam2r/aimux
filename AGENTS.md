@@ -44,7 +44,7 @@ herdr tab close <tab_id>
 - `adapter/` — registry of four adapters (Claude, Codex, OpenCode, Pi). Each declares its form fields, quick toggles, model UI (catalog vs slots), snippet syntax, apply/remove logic, slot clearing, and live-config rescue.
 - `switch.rs` — the only path that writes live configs (`use_provider`); TUI Enter calls the same function as the CLI.
 - `settings.rs` — apps mode (auto/manual) + language. Auto detection = CLI binary on `PATH`, nothing else.
-- `backup.rs`, `cloud.rs`, `webdav.rs` — snapshot rotation and WebDAV sync under the built-in namespace `apmux-sync`.
+- `backup.rs`, `cloud.rs`, `webdav.rs`, `gist.rs` — snapshot rotation and cloud sync: WebDAV under the built-in namespace `apmux-sync`, GitHub Gist as one secret gist per user. Both backends store the same `manifest.json` + `store.json` pair; `cloud::Remote` (trait) carries the shared conflict/manifest/backup protocol, `gist.rs` is CLI-only for now.
 - `tui/` — ratatui app. Copy goes through `i18n.rs` (English default, zh optional); never hardcode Chinese in widgets; never `eprintln` inside the TUI.
 - `import.rs` — `apmux import`: one-shot cc-switch migration (providers + WebDAV credentials) into the store; never writes live configs.
 - `try_launch.rs` — `apmux try <PROVIDER>`: launch a real CLI against a provider with a throwaway config dir (official override env var per app); live configs are never read or written, temp dir removed on exit.
