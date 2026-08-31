@@ -43,7 +43,9 @@ fn init_chain(explicit: Option<&str>, saved: Option<&str>) {
         set(l);
         return;
     }
-    if let Some(l) = parse(env::var(crate::name::ENV_LANG).ok().as_deref()) {
+    if let Some(l) =
+        parse(crate::name::read_env(crate::name::ENV_LANG, crate::name::LEGACY_ENV_LANG).as_deref())
+    {
         set(l);
         return;
     }
@@ -199,8 +201,8 @@ fn en(key: &'static str) -> &'static str {
         "status.test_no_endpoint" => "no endpoint to test",
         "hint.quit" => "quit",
         "help.keys_title" => "Keys",
-        "help.data_footnote" => "Files go under the built-in namespace aimux-sync (shown, not editable).",
-        "help.settings_footnote" => "Auto detection looks for the CLI on PATH, a config folder, or providers already saved in aimux. Manual mode shows or hides each app; at least one stays visible.",
+        "help.data_footnote" => "Files go under the built-in namespace apmux-sync (shown, not editable).",
+        "help.settings_footnote" => "Auto detection looks for the CLI on PATH, a config folder, or providers already saved in apmux. Manual mode shows or hides each app; at least one stays visible.",
         "status.hint_picker" => "j/k move  PgUp/PgDn page  Space toggle  / filter  ←→ cursor  Enter confirm  Esc cancel",
         "status.hint_catalog" => "j/k row  Tab column  e edit  n new  d delete  * default  Enter save  Esc cancel",
         "status.hint_catalog_popover" => "j/k move  Space toggle  Enter done  Esc cancel",
@@ -266,7 +268,7 @@ fn en(key: &'static str) -> &'static str {
         "settings.off" => "off",
 
         "help.syncing" => {
-            "Syncing\n\nWait for this to finish, or press q to quit aimux."
+            "Syncing\n\nWait for this to finish, or press q to quit apmux."
         }
         "help.confirm" => "Confirm\n\ny            yes\nn or Esc     no",
         "help.list" => "\
@@ -295,7 +297,7 @@ u                    pull\n\
 Esc                  back to the list\n\
 q                    quit\n\
 \n\
-Files go under the built-in namespace aimux-sync (shown, not editable).",
+Files go under the built-in namespace apmux-sync (shown, not editable).",
         "help.settings" => "\
 Settings\n\n\
 j k or ↑ ↓           move\n\
@@ -303,15 +305,15 @@ Space or Enter       change the value\n\
 Esc                  back to the list\n\
 q                    quit\n\n\
 Auto detection looks for the CLI on PATH,\n\
-a config folder, or providers already saved in aimux.\n\
+a config folder, or providers already saved in apmux.\n\
 Manual lets you show or hide each app. At least one stays visible.",
         "help.sync_setup" => "\
 Sync setup\n\n\
 Tab / ↑ ↓            move between fields\n\
-Enter                submit (creates the aimux-sync folder under this URL)\n\
+Enter                submit (creates the apmux-sync folder under this URL)\n\
 Esc                  cancel\n\n\
 Leave the password empty to keep the current secret.\n\
-Namespace aimux-sync is built-in and cannot be edited.",
+Namespace apmux-sync is built-in and cannot be edited.",
         "help.form" => "\
 Form\n\n\
 Tab / ↑ ↓            move between fields\n\
@@ -466,8 +468,8 @@ fn zh(key: &'static str) -> Option<&'static str> {
         "status.test_no_endpoint" => "没有可测试的端点",
         "hint.quit" => "退出",
         "help.keys_title" => "快捷键",
-        "help.data_footnote" => "文件写在内置命名空间 aimux-sync 下（只显示，不能改）。",
-        "help.settings_footnote" => "自动检测会找 PATH 上的 CLI、配置目录，以及 aimux 里已经存过的供应商。手动模式可以逐个显示或隐藏，至少留一个。",
+        "help.data_footnote" => "文件写在内置命名空间 apmux-sync 下（只显示，不能改）。",
+        "help.settings_footnote" => "自动检测会找 PATH 上的 CLI、配置目录，以及 apmux 里已经存过的供应商。手动模式可以逐个显示或隐藏，至少留一个。",
         "status.hint_picker" => {
             "j/k 移动  PgUp/PgDn 翻页  空格 勾选  / 过滤  ←→ 光标  Enter 确认  Esc 取消"
         }
@@ -536,16 +538,16 @@ fn zh(key: &'static str) -> Option<&'static str> {
         "settings.on" => "显示",
         "settings.off" => "隐藏",
 
-        "help.syncing" => "正在同步\n\n等它完成，或按 q 退出 aimux。",
+        "help.syncing" => "正在同步\n\n等它完成，或按 q 退出 apmux。",
         "help.confirm" => "确认\n\ny            是\nn 或 Esc     否",
         "help.sync_setup" => {
             "\
 同步设置\n\n\
 Tab / ↑ ↓            字段间移动\n\
-Enter                提交（在此 URL 下创建 aimux-sync 目录）\n\
+Enter                提交（在此 URL 下创建 apmux-sync 目录）\n\
 Esc                  取消\n\n\
 密钥留空 = 保留原密码。\n\
-命名空间 aimux-sync 是内置的，不能改。"
+命名空间 apmux-sync 是内置的，不能改。"
         }
         "help.form" => {
             "\

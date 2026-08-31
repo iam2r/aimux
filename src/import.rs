@@ -1,4 +1,4 @@
-//! Explicit `aimux import` from a cc-switch SQLite DB into `store.json`.
+//! Explicit `apmux import` from a cc-switch SQLite DB into `store.json`.
 //!
 //! Also copies WebDAV credentials from cc-switch `settings.json` into
 //! `webdav.json` (`baseUrl` only; `remoteRoot` is ignored). Does not apply live
@@ -155,7 +155,7 @@ impl ImportReport {
             }
         }
         lines.push(String::new());
-        lines.push("Does not apply live files. After import: aimux list && aimux use <id>".into());
+        lines.push("Does not apply live files. After import: apmux list && apmux use <id>".into());
         lines.join("\n")
     }
 }
@@ -628,8 +628,8 @@ fn extract_webdav(settings: &Value) -> WebDavPlan {
     let Some(password) = password else {
         return WebDavPlan::Invalid("missing password".into());
     };
-    // cc-switch `remoteRoot` (cc-switch-sync) is that app's namespace. aimux uses
-    // its own built-in `aimux-sync` at sync time and stores only the WebDAV root.
+    // cc-switch `remoteRoot` (cc-switch-sync) is that app's namespace. apmux uses
+    // its own built-in `apmux-sync` at sync time and stores only the WebDAV root.
     match webdav::validate_remote_url(&base) {
         Ok(url) => WebDavPlan::Ready {
             url,
@@ -711,7 +711,7 @@ fn open_snapshot(src: &Path) -> Result<(SnapshotGuard, Connection)> {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let dir = std::env::temp_dir().join(format!("aimux-import-{}-{nanos}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("apmux-import-{}-{nanos}", std::process::id()));
     fs::create_dir_all(&dir).with_context(|| format!("create {}", dir.display()))?;
     let guard = SnapshotGuard { dir: dir.clone() };
     let dest = dir.join("cc-switch.db");
@@ -979,7 +979,7 @@ mod tests {
     fn sqlite_roundtrip_does_not_print_or_drop_other_apps() {
         let td = tempfile::tempdir().unwrap();
         let paths = Paths::for_test(td.path());
-        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fsutil::ensure_dir_0700(&paths.config_dir).unwrap();
         let mut store = Store::empty();
         store.providers.insert(
             "agate-pi".into(),
@@ -1121,7 +1121,7 @@ mod tests {
     fn webdav_import_writes_and_force_overwrites() {
         let td = tempfile::tempdir().unwrap();
         let paths = Paths::for_test(td.path());
-        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fsutil::ensure_dir_0700(&paths.config_dir).unwrap();
         let db = td.path().join("cc-switch.db");
         write_fixture_db(&db);
         let settings = td.path().join("settings.json");

@@ -52,7 +52,7 @@ impl Settings {
     }
 
     pub fn save(&self, paths: &Paths) -> Result<()> {
-        fsutil::ensure_dir_0700(&paths.aimux_dir)?;
+        fsutil::ensure_dir_0700(&paths.config_dir)?;
         let path = paths.settings_file();
         let mut body = serde_json::to_string_pretty(self).context("serialize settings.json")?;
         if !body.ends_with('\n') {

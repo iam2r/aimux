@@ -141,7 +141,7 @@ fn edit_provider_inner(
         Ok(adapter) => adapter,
         Err(e) => {
             anyhow::bail!(
-                "{e}; delete this provider with `aimux delete {} --yes`",
+                "{e}; delete this provider with `apmux delete {} --yes`",
                 existing.id
             );
         }
@@ -207,7 +207,7 @@ fn edit_provider_inner(
     let id = provider.id.clone();
     let display = provider.name.clone();
     store.providers.insert(id.clone(), provider);
-    persist(store, paths, after_live, &format!("re-run aimux edit {id}"))?;
+    persist(store, paths, after_live, &format!("re-run apmux edit {id}"))?;
     Ok(display)
 }
 
@@ -284,7 +284,7 @@ fn use_provider_inner(
         store,
         paths,
         after_live,
-        &format!("re-run aimux use {}", provider.name),
+        &format!("re-run apmux use {}", provider.name),
     )?;
     Ok((provider.name, outcome))
 }

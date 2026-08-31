@@ -1,4 +1,4 @@
-//! `aimux try <PROVIDER> [-- <args…>]`: launch a CLI against a provider
+//! `apmux try <PROVIDER> [-- <args…>]`: launch a CLI against a provider
 //! without touching the live config. Each app gets a throwaway config
 //! directory (or single file) selected via its official override env var —
 //! the same isolation trick cc-switch-cli uses for Codex (`CODEX_HOME`) —
@@ -151,7 +151,7 @@ fn resolve_bin(bin_override: Option<&str>, app: AppId) -> Result<std::path::Path
 fn stage(provider: &Provider) -> Result<(tempfile::TempDir, &'static str)> {
     let (files, env_var) = payload(provider)?;
     let tmp = tempfile::Builder::new()
-        .prefix(concat!("aimux-try-", env!("CARGO_PKG_NAME"), "-"))
+        .prefix(concat!("apmux-try-", env!("CARGO_PKG_NAME"), "-"))
         .tempdir()
         .context("create temp dir for trial launch")?;
     for (name, contents) in &files {
@@ -323,7 +323,7 @@ mod tests {
         let fake = fake_dir.path().join("fake-codex");
         std::fs::write(
             &fake,
-            "#!/bin/sh\ntest -f \"$AIMUX_TRY_HOME/config.toml\" && test -f \"$AIMUX_TRY_HOME/auth.json\" || echo MISSING_FILES\nexit 7\n",
+            "#!/bin/sh\ntest -f \"$APMUX_TRY_HOME/config.toml\" && test -f \"$APMUX_TRY_HOME/auth.json\" || echo MISSING_FILES\nexit 7\n",
         )
         .unwrap();
         #[cfg(unix)]

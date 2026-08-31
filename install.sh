@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# One-line install: curl -fsSL https://github.com/iam2r/aimux/releases/latest/download/install.sh | bash
+# One-line install: curl -fsSL https://github.com/iam2r/apmux/releases/latest/download/install.sh | bash
 set -Eeuo pipefail
 
-REPO="${AIMUX_REPO:-iam2r/aimux}"
-BIN_NAME="aimux"
-INSTALL_DIR="${AIMUX_INSTALL_DIR:-$HOME/.local/bin}"
+REPO="${APMUX_REPO:-iam2r/apmux}"
+BIN_NAME="apmux"
+INSTALL_DIR="${APMUX_INSTALL_DIR:-$HOME/.local/bin}"
 TARGET="${INSTALL_DIR}/${BIN_NAME}"
 RELEASES_URL="https://github.com/${REPO}/releases"
-SKIP_PATH="${AIMUX_SKIP_PATH:-0}"
+SKIP_PATH="${APMUX_SKIP_PATH:-0}"
 VERSION="${1:-latest}"
 [[ "${VERSION}" == "latest" || "${VERSION}" =~ ^v ]] || VERSION="v${VERSION}"
 
@@ -46,12 +46,12 @@ detect_asset() {
 
   case "${os}" in
     Darwin)
-      ASSET_NAME="aimux-darwin-universal.tar.gz"
+      ASSET_NAME="apmux-darwin-universal.tar.gz"
       ;;
     Linux)
       case "${arch}" in
-        x86_64 | amd64) ASSET_NAME="aimux-linux-x64-musl.tar.gz" ;;
-        aarch64 | arm64) ASSET_NAME="aimux-linux-arm64-musl.tar.gz" ;;
+        x86_64 | amd64) ASSET_NAME="apmux-linux-x64-musl.tar.gz" ;;
+        aarch64 | arm64) ASSET_NAME="apmux-linux-arm64-musl.tar.gz" ;;
         *)
           err "Unsupported Linux architecture: ${arch}"
           err "See ${RELEASES_URL}"
@@ -60,9 +60,9 @@ detect_asset() {
       esac
       ;;
     MINGW* | MSYS* | CYGWIN*)
-      ASSET_NAME="aimux-windows-x64.zip"
+      ASSET_NAME="apmux-windows-x64.zip"
       EXTRACT_KIND="zip"
-      BIN_NAME="aimux.exe"
+      BIN_NAME="apmux.exe"
       TARGET="${INSTALL_DIR}/${BIN_NAME}"
       ;;
     *)
@@ -157,7 +157,7 @@ ensure_path() {
   esac
 
   if [[ "${SKIP_PATH}" == "1" ]]; then
-    warn "${INSTALL_DIR} is not in PATH (AIMUX_SKIP_PATH=1; not modifying shell rc)"
+    warn "${INSTALL_DIR} is not in PATH (APMUX_SKIP_PATH=1; not modifying shell rc)"
     return 0
   fi
 
@@ -167,12 +167,17 @@ ensure_path() {
   mkdir -p "$(dirname "${rc}")"
   touch "${rc}"
   if grep -Fqs "# aimux PATH" "${rc}"; then
+    # In-place upgrade of the pre-rename managed block marker so old installs
+    # don't accumulate a second block.
+    sed -i "s/# aimux PATH/# apmux PATH/g; s/# end aimux PATH/# end apmux PATH/g" "${rc}"
+    info "${INSTALL_DIR} is not in this shell's PATH; upgraded the managed block in ${rc}"
+  elif grep -Fqs "# apmux PATH" "${rc}"; then
     info "${INSTALL_DIR} is not in this shell's PATH; a managed block already exists in ${rc}"
   else
     {
-      printf '\n# aimux PATH\n'
+      printf '\n# apmux PATH\n'
       printf '%s\n' "${cmd}"
-      printf '# end aimux PATH\n'
+      printf '# end apmux PATH\n'
     } >>"${rc}"
     info "Added ${INSTALL_DIR} to PATH in ${rc}"
   fi
@@ -186,7 +191,7 @@ main() {
   need_cmd tar
   need_cmd mktemp
   detect_asset
-  TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/aimux-install.XXXXXX")"
+  TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/apmux-install.XXXXXX")"
   download
   extract
   install_binary

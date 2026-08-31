@@ -43,17 +43,17 @@ impl Harness {
         fs::create_dir_all(&logs_dir).unwrap();
         fs::create_dir_all(&payload).unwrap();
         write_exec(
-            &payload.join("aimux"),
-            "#!/usr/bin/env bash\necho aimux-test-build\n",
+            &payload.join("apmux"),
+            "#!/usr/bin/env bash\necho apmux-test-build\n",
         );
 
-        let archive = temp.path().join("aimux.tar.gz");
+        let archive = temp.path().join("apmux.tar.gz");
         let status = Command::new("tar")
             .args(["-czf"])
             .arg(&archive)
             .arg("-C")
             .arg(&payload)
-            .arg("aimux")
+            .arg("apmux")
             .status()
             .unwrap();
         assert!(status.success());
@@ -81,8 +81,8 @@ while [ "$#" -gt 0 ]; do
     *) url="$1"; shift ;;
   esac
 done
-printf '%s' "$url" > "${AIMUX_TEST_LOG_DIR}/last-url"
-cp "${AIMUX_TEST_ARCHIVE}" "$output"
+printf '%s' "$url" > "${APMUX_TEST_LOG_DIR}/last-url"
+cp "${APMUX_TEST_ARCHIVE}" "$output"
 "#;
         write_exec(&fakebin.join("curl"), curl);
         Self {
@@ -95,7 +95,7 @@ cp "${AIMUX_TEST_ARCHIVE}" "$output"
     }
 
     fn archive_path(&self) -> PathBuf {
-        self._temp.path().join("aimux.tar.gz")
+        self._temp.path().join("apmux.tar.gz")
     }
 
     fn run(&self, extra: &[(&str, &str)], path_extra: &str) -> Output {
@@ -108,11 +108,11 @@ cp "${AIMUX_TEST_ARCHIVE}" "$output"
         cmd.arg(install_script())
             .env("HOME", &self.home)
             .env("PATH", path)
-            .env("AIMUX_INSTALL_DIR", &self.install_dir)
-            .env("AIMUX_TEST_LOG_DIR", &self.logs_dir)
-            .env("AIMUX_TEST_ARCHIVE", self.archive_path())
+            .env("APMUX_INSTALL_DIR", &self.install_dir)
+            .env("APMUX_TEST_LOG_DIR", &self.logs_dir)
+            .env("APMUX_TEST_ARCHIVE", self.archive_path())
             .env("SHELL", "/bin/bash")
-            .env("AIMUX_SKIP_PATH", "1");
+            .env("APMUX_SKIP_PATH", "1");
         for (k, v) in extra {
             cmd.env(k, v);
         }
@@ -135,11 +135,11 @@ fn linux_x64_downloads_musl_asset() {
     let out = h.run(&[], "/usr/bin");
     assert_ok(&out);
     let url = fs::read_to_string(h.logs_dir.join("last-url")).unwrap();
-    assert!(url.ends_with("aimux-linux-x64-musl.tar.gz"), "url={url}");
-    let installed = h.install_dir.join("aimux");
+    assert!(url.ends_with("apmux-linux-x64-musl.tar.gz"), "url={url}");
+    let installed = h.install_dir.join("apmux");
     assert!(installed.is_file());
     let body = fs::read_to_string(&installed).unwrap();
-    assert!(body.contains("aimux-test-build"));
+    assert!(body.contains("apmux-test-build"));
 }
 
 #[test]
@@ -148,13 +148,13 @@ fn linux_arm64_and_darwin_assets() {
     let out = h.run(&[], "/usr/bin");
     assert_ok(&out);
     let url = fs::read_to_string(h.logs_dir.join("last-url")).unwrap();
-    assert!(url.ends_with("aimux-linux-arm64-musl.tar.gz"), "url={url}");
+    assert!(url.ends_with("apmux-linux-arm64-musl.tar.gz"), "url={url}");
 
     let h = Harness::new("Darwin", "arm64");
     let out = h.run(&[], "/usr/bin");
     assert_ok(&out);
     let url = fs::read_to_string(h.logs_dir.join("last-url")).unwrap();
-    assert!(url.ends_with("aimux-darwin-universal.tar.gz"), "url={url}");
+    assert!(url.ends_with("apmux-darwin-universal.tar.gz"), "url={url}");
 }
 
 #[test]
@@ -169,22 +169,22 @@ fn writes_path_block_when_install_dir_missing_from_path() {
         .arg(install_script())
         .env("HOME", &h.home)
         .env("PATH", path)
-        .env("AIMUX_INSTALL_DIR", &h.install_dir)
-        .env("AIMUX_TEST_LOG_DIR", &h.logs_dir)
-        .env("AIMUX_TEST_ARCHIVE", h.archive_path())
+        .env("APMUX_INSTALL_DIR", &h.install_dir)
+        .env("APMUX_TEST_LOG_DIR", &h.logs_dir)
+        .env("APMUX_TEST_ARCHIVE", h.archive_path())
         .env("SHELL", "/bin/bash")
         .output()
         .unwrap();
     assert_ok(&out);
     let rc = fs::read_to_string(h.home.join(".bashrc")).unwrap();
-    assert!(rc.contains("# aimux PATH"), "{rc}");
+    assert!(rc.contains("# apmux PATH"), "{rc}");
     assert!(rc.contains(&h.install_dir.display().to_string()), "{rc}");
 }
 
 #[test]
 fn skip_path_does_not_touch_rc() {
     let h = Harness::new("Linux", "x86_64");
-    let out = h.run(&[("AIMUX_SKIP_PATH", "1")], "/usr/bin");
+    let out = h.run(&[("APMUX_SKIP_PATH", "1")], "/usr/bin");
     assert_ok(&out);
     assert!(!h.home.join(".bashrc").exists());
 }
@@ -202,11 +202,11 @@ fn version_arg_is_prefixed() {
         .arg("0.1.0")
         .env("HOME", &h.home)
         .env("PATH", path)
-        .env("AIMUX_INSTALL_DIR", &h.install_dir)
-        .env("AIMUX_TEST_LOG_DIR", &h.logs_dir)
-        .env("AIMUX_TEST_ARCHIVE", h.archive_path())
+        .env("APMUX_INSTALL_DIR", &h.install_dir)
+        .env("APMUX_TEST_LOG_DIR", &h.logs_dir)
+        .env("APMUX_TEST_ARCHIVE", h.archive_path())
         .env("SHELL", "/bin/bash")
-        .env("AIMUX_SKIP_PATH", "1")
+        .env("APMUX_SKIP_PATH", "1")
         .output()
         .unwrap();
     assert_ok(&out);

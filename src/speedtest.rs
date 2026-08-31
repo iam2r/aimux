@@ -1,4 +1,4 @@
-//! Provider connectivity test (`aimux test` / TUI `t`): time a real request
+//! Provider connectivity test (`apmux test` / TUI `t`): time a real request
 //! against the provider's base_url so "is this relay any good" stops being
 //! guesswork. Follows cc-switch-cli's approach — a warm-up request absorbs
 //! TLS/DNS/connection setup, then a second timed request measures steady
@@ -53,7 +53,7 @@ async fn probe(
 }
 
 /// Probe one provider by display name. Uses the same resolution as
-/// `aimux use`, so names/ids/substrings all work.
+/// `apmux use`, so names/ids/substrings all work.
 pub async fn test_provider(store: &Store, query: &str) -> Result<SpeedResult> {
     let provider = crate::switch::resolve(store, query, None)?;
     test_provider_inner(&client()?, provider).await

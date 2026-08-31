@@ -1,4 +1,4 @@
-# Contributing to aimux
+# Contributing to apmux
 
 Thanks for your interest in contributing! This guide walks you through the
 workflow. You never touch version numbers or the changelog — and you don't
@@ -17,8 +17,8 @@ Do not open PRs against `main` — they will be redirected to `develop`.
 ## Quick start
 
 ```bash
-git clone https://github.com/iam2r/aimux.git   # or your fork
-cd aimux
+git clone https://github.com/iam2r/apmux.git   # or your fork
+cd apmux
 git switch develop
 cargo test          # unit tests
 cargo fmt --check   # formatting (CI enforces)
@@ -62,7 +62,7 @@ change files and push again.
 
    ```markdown
    ---
-   aimux: patch
+   apmux: patch
    ---
    One-line summary that goes into the changelog.
    ```
@@ -72,7 +72,7 @@ change files and push again.
 3. Push to `develop`. The release bot takes over:
    consumes the change files → bumps `Cargo.toml` / `Cargo.lock` and updates
    `CHANGELOG.md` on a `release` branch → opens a Release PR (develop → main)
-   and auto-merges it → tags `aimux/vX.Y.Z` → builds binaries for all
+   and auto-merges it → tags `apmux/vX.Y.Z` → builds binaries for all
    platforms → back-merges `main` into `develop` so the bump syncs back.
 
 Hotfixes also go through `develop` (push the fix + change file there — it's
@@ -98,7 +98,7 @@ not the enforcement point.
 
 Please use the issue templates:
 
-- **Bug report**: include your OS/terminal, aimux version (`aimux --version`
+- **Bug report**: include your OS/terminal, apmux version (`apmux --version`
   or the installed tag), and steps to reproduce. TUI bugs: mention your
   terminal emulator and whether it's over SSH.
 - **Feature request**: describe the problem you're trying to solve, not just
@@ -106,7 +106,7 @@ Please use the issue templates:
 
 ## Platform notes
 
-aimux is a cross-platform TUI (macOS / Linux / Windows). When touching input
+apmux is a cross-platform TUI (macOS / Linux / Windows). When touching input
 handling, rendering, or paths, consider Windows behavior — CI runs the test
 suite there. Add tests for parser-level fixes (see `src/speedtest.rs` tests
 for examples of deterministic probing).

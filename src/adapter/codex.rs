@@ -397,7 +397,7 @@ fn write_codex_catalog(path: &Path, doc: &mut DocumentMut, provider: &Provider) 
     Ok(true)
 }
 
-/// Codex requires richer catalog rows than aimux stores (e.g.
+/// Codex requires richer catalog rows than apmux stores (e.g.
 /// `supported_reasoning_levels`, `base_instructions`): every row is a clone of
 /// this native `/responses` template with the stored fields overlaid. Mirrors
 /// cc-switch's approach. Never strip `base_instructions` — Codex refuses
@@ -774,7 +774,7 @@ mod tests {
         assert!(catalog["models"][0].get("max_tokens").is_none());
         assert!(catalog["models"][0].get("max_output_tokens").is_none());
         // Fields Codex's catalog parser requires (regression: live Codex
-        // refused aimux's minimal rows with "missing field
+        // refused apmux's minimal rows with "missing field
         // `supported_reasoning_levels`").
         assert_eq!(
             catalog["models"][0]["supported_reasoning_levels"][1]["effort"],

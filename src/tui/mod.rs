@@ -104,7 +104,7 @@ fn run_try_job(
 }
 
 fn init_file_logger(paths: &Paths) -> Result<()> {
-    fsutil::ensure_dir_0700(&paths.aimux_dir)?;
+    fsutil::ensure_dir_0700(&paths.config_dir)?;
     let path = paths.log_file();
     let mut opts = std::fs::OpenOptions::new();
     opts.create(true).append(true);

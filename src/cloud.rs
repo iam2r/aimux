@@ -6,6 +6,7 @@ use sha2::{Digest, Sha256};
 
 use crate::error::Error;
 use crate::fsutil;
+use crate::name;
 use crate::paths::Paths;
 use crate::store::Store;
 use crate::webdav::{self, DavClient};
@@ -37,7 +38,68 @@ struct Manifest {
     sha256: String,
 }
 
+/// One-time remote migration: when the pre-rename collection (`apmux-sync`)
+/// is the only one on the server, copy `store.json` + `manifest.json` into the
+/// current namespace (`apmux-sync`) and delete the old collection. Best-effort:
+/// any failure only warns; sync then continues against the new namespace.
+/// Runs before the first push/pull/status on installs that still have backups
+/// or a sync configured from before the rename.
+pub(crate) fn migrate_remote_namespace(paths: &Paths) {
+    let cfg = match load_config(paths) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    let base = match webdav::validate_remote_url(&cfg.url) {
+        Ok(u) => u,
+        Err(_) => return,
+    };
+    let same = match (
+        webdav::join_dir(&base, name::LEGACY_SYNC_NAMESPACE).ok(),
+        webdav::join_dir(&base, name::SYNC_NAMESPACE).ok(),
+    ) {
+        (Some(o), Some(n)) => o == n,
+        _ => false,
+    };
+    if same {
+        return;
+    }
+    if let Err(e) = webdav::block_on(async move {
+        let client = DavClient::new(&cfg.username, &cfg.password)?;
+        let old = webdav::join_dir(&base, name::LEGACY_SYNC_NAMESPACE)?;
+        let new = webdav::join_dir(&base, name::SYNC_NAMESPACE)?;
+        // Current namespace already in use → keep the legacy data as-is (stale).
+        if client.propfind_exists(&new).await? {
+            log::warn!(
+                "webdav: {} already exists; leaving legacy {} untouched",
+                new,
+                old
+            );
+            return Ok(());
+        }
+        if !client.propfind_exists(&old).await? {
+            return Ok(());
+        }
+        log::info!("webdav: migrating {} → {}", old, new);
+        client.ensure_remote_directories(&new).await?;
+        for f in ["store.json", "manifest.json"] {
+            let src = webdav::join_file(&old, f)?;
+            if let Some(bytes) = client.get(&src).await? {
+                let dst = webdav::join_file(&new, f)?;
+                client.put(&dst, &bytes).await?;
+            }
+        }
+        for f in ["store.json", "manifest.json"] {
+            let _ = client.delete(&webdav::join_file(&old, f)?).await;
+        }
+        let _ = client.delete(&old).await;
+        Ok(())
+    }) {
+        log::warn!("webdav namespace migration failed: {e:#}");
+    }
+}
+
 pub(crate) fn setup(paths: &Paths, url: String, username: String, password: String) -> Result<()> {
+    migrate_remote_namespace(paths);
     if username.is_empty() {
         anyhow::bail!("username must not be empty");
     }
@@ -72,6 +134,7 @@ pub(crate) fn setup(paths: &Paths, url: String, username: String, password: Stri
 }
 
 pub(crate) fn push(paths: &Paths, force: bool) -> Result<String> {
+    migrate_remote_namespace(paths);
     let mut cfg = load_config(paths)?;
     let local_bytes = local_store_bytes(paths)?;
     let local_sha = sha256_hex(&local_bytes);
@@ -102,7 +165,7 @@ pub(crate) fn push(paths: &Paths, force: bool) -> Result<String> {
         };
         if push_conflict(&remote_sha, &last_pulled, &sha_check) && !force {
             log::info!("webdav.conflict sha={remote_sha}");
-            anyhow::bail!("remote store has changed; run aimux sync pull or pass --force");
+            anyhow::bail!("remote store has changed; run apmux sync pull or pass --force");
         }
         Ok(())
     })?;
@@ -150,6 +213,7 @@ pub(crate) fn pull_quiet(paths: &Paths, force: bool) -> Result<String> {
 }
 
 fn pull_inner(paths: &Paths, force: bool, stderr_warn: bool) -> Result<String> {
+    migrate_remote_namespace(paths);
     let mut cfg = load_config(paths)?;
     let local_bytes = local_store_bytes(paths)?;
     let local_sha = sha256_hex(&local_bytes);
@@ -166,7 +230,7 @@ fn pull_inner(paths: &Paths, force: bool, stderr_warn: bool) -> Result<String> {
         match (man_body, store_body) {
             (None, None) => anyhow::bail!("remote is empty; nothing to pull"),
             (None, Some(_)) => anyhow::bail!(
-                "remote store.json does not match manifest (missing manifest); re-run aimux sync push --force to repair"
+                "remote store.json does not match manifest (missing manifest); re-run apmux sync push --force to repair"
             ),
             (Some(_), None) => anyhow::bail!("remote manifest.json present but store.json is missing"),
             (Some(man), Some(store)) => {
@@ -174,7 +238,7 @@ fn pull_inner(paths: &Paths, force: bool, stderr_warn: bool) -> Result<String> {
                 let got = sha256_hex(&store);
                 if got != manifest.sha256 {
                     anyhow::bail!(
-                        "remote store.json does not match manifest; re-run aimux sync push --force to repair"
+                        "remote store.json does not match manifest; re-run apmux sync push --force to repair"
                     );
                 }
                 if manifest.bytes != 0 && manifest.bytes != store.len() as u64 {
@@ -193,7 +257,7 @@ fn pull_inner(paths: &Paths, force: bool, stderr_warn: bool) -> Result<String> {
 
     if local_sha != remote_sha {
         backup::create(paths, None)?;
-        fsutil::ensure_dir_0700(&paths.aimux_dir)?;
+        fsutil::ensure_dir_0700(&paths.config_dir)?;
         fsutil::atomic_write(&paths.store_file(), &remote_bytes)?;
     }
 
@@ -210,6 +274,7 @@ fn pull_inner(paths: &Paths, force: bool, stderr_warn: bool) -> Result<String> {
 }
 
 pub(crate) fn status(paths: &Paths) -> Result<String> {
+    migrate_remote_namespace(paths);
     let cfg = load_config(paths)?;
     let local_sha = sha256_hex(&local_store_bytes(paths)?);
     let username = cfg.username.clone();
@@ -268,7 +333,7 @@ pub(crate) fn status(paths: &Paths) -> Result<String> {
 fn load_config(paths: &Paths) -> Result<WebDavConfig> {
     let path = paths.webdav_file();
     if !path.is_file() {
-        anyhow::bail!("webdav is not configured; run aimux sync setup");
+        anyhow::bail!("webdav is not configured; run apmux sync setup");
     }
     let data = fs::read_to_string(&path).map_err(|e| Error::io(&path, e))?;
     serde_json::from_str(&data).map_err(|e| Error::json(&path, e).into())
@@ -302,7 +367,7 @@ pub(crate) fn credentials(paths: &Paths) -> Option<(String, String, String)> {
 }
 
 fn save_config(paths: &Paths, cfg: &WebDavConfig) -> Result<()> {
-    fsutil::ensure_dir_0700(&paths.aimux_dir)?;
+    fsutil::ensure_dir_0700(&paths.config_dir)?;
     let path = paths.webdav_file();
     let mut data = serde_json::to_string_pretty(cfg).context("serialize webdav.json")?;
     if !data.ends_with('\n') {
@@ -346,7 +411,9 @@ enum RemoteInfo {
 
 fn parse_manifest(body: &[u8]) -> Result<Manifest> {
     let m: Manifest = serde_json::from_slice(body).context("parse remote manifest.json")?;
-    if m.format != MANIFEST_FORMAT {
+    // Accept both the current package-name-free format and the pre-rename
+    // `apmux-webdav-sync` format so old cloud copies stay readable.
+    if m.format != name::MANIFEST_FORMAT && m.format != name::LEGACY_MANIFEST_FORMAT {
         anyhow::bail!("unsupported remote manifest format: {}", m.format);
     }
     if m.version > MANIFEST_VERSION {
@@ -496,7 +563,7 @@ mod tests {
         let cfg = cfg_from_disk(&paths);
         assert_eq!(cfg.url, url);
         assert!(
-            !cfg.url.contains("aimux-sync"),
+            !cfg.url.contains("apmux-sync"),
             "stored URL is the WebDAV root, not the namespace: {}",
             cfg.url
         );
@@ -508,7 +575,7 @@ mod tests {
         }
         let log = srv.methods();
         assert!(
-            log.iter().any(|l| l == "MKCOL /dav/my-dir/aimux-sync"),
+            log.iter().any(|l| l == "MKCOL /dav/my-dir/apmux-sync"),
             "MKCOL built-in namespace: {log:?}"
         );
     }
@@ -542,7 +609,7 @@ mod tests {
         assert!(!cfg.last_sync_at.is_empty());
         let text = status(&paths).unwrap();
         assert!(text.contains("connected: yes"));
-        assert!(text.contains("namespace: aimux-sync"));
+        assert!(text.contains("namespace: apmux-sync"));
         assert!(text.contains(&sha));
         assert!(!text.contains("s3cret-pass"));
         assert!(text.contains("fork: no"));
@@ -572,7 +639,7 @@ mod tests {
         {
             let mut st = srv.state.lock().unwrap();
             st.files.insert(
-                "/dav/aimux-sync/manifest.json".into(),
+                "/dav/apmux-sync/manifest.json".into(),
                 serde_json::to_vec(&Manifest {
                     format: MANIFEST_FORMAT.into(),
                     version: 1,
@@ -644,11 +711,11 @@ mod tests {
         {
             let mut st = srv.state.lock().unwrap();
             st.files.insert(
-                "/dav/aimux-sync/store.json".into(),
+                "/dav/apmux-sync/store.json".into(),
                 br#"{"version":1,"current":{},"providers":{}}"#.to_vec(),
             );
             st.files.insert(
-                "/dav/aimux-sync/manifest.json".into(),
+                "/dav/apmux-sync/manifest.json".into(),
                 serde_json::to_vec(&Manifest {
                     format: MANIFEST_FORMAT.into(),
                     version: 1,
@@ -675,7 +742,7 @@ mod tests {
         {
             let mut st = srv.state.lock().unwrap();
             st.files.insert(
-                "/dav/aimux-sync/manifest.json".into(),
+                "/dav/apmux-sync/manifest.json".into(),
                 b"not-json{{{".to_vec(),
             );
         }
@@ -694,7 +761,7 @@ mod tests {
         assert_eq!(cfg.last_pushed_sha256, sha);
         let st = srv.state.lock().unwrap();
         let man: Manifest =
-            serde_json::from_slice(&st.files["/dav/aimux-sync/manifest.json"]).unwrap();
+            serde_json::from_slice(&st.files["/dav/apmux-sync/manifest.json"]).unwrap();
         assert_eq!(man.sha256, sha);
     }
 
@@ -707,7 +774,7 @@ mod tests {
         write_store(&paths, &sample_store());
         {
             let mut st = srv.state.lock().unwrap();
-            st.put_fail.insert("/dav/aimux-sync/manifest.json".into());
+            st.put_fail.insert("/dav/apmux-sync/manifest.json".into());
         }
         let err = push(&paths, false).unwrap_err();
         assert!(err.to_string().contains("PUT"), "{err}");
@@ -718,10 +785,10 @@ mod tests {
         );
         let st = srv.state.lock().unwrap();
         assert!(
-            st.files.contains_key("/dav/aimux-sync/store.json"),
+            st.files.contains_key("/dav/apmux-sync/store.json"),
             "store PUT may succeed before manifest fails"
         );
-        assert!(!st.files.contains_key("/dav/aimux-sync/manifest.json"));
+        assert!(!st.files.contains_key("/dav/apmux-sync/manifest.json"));
     }
 
     #[test]
@@ -735,16 +802,103 @@ mod tests {
         {
             let mut st = srv.state.lock().unwrap();
             st.files
-                .insert("/dav/aimux-sync/store.json".into(), bytes.clone());
-            st.files.remove("/dav/aimux-sync/manifest.json");
+                .insert("/dav/apmux-sync/store.json".into(), bytes.clone());
+            st.files.remove("/dav/apmux-sync/manifest.json");
         }
         let err = pull(&paths, true).unwrap_err();
         assert!(err.to_string().contains("missing manifest"), "{err}");
         push(&paths, false).unwrap();
         let st = srv.state.lock().unwrap();
-        assert!(st.files.contains_key("/dav/aimux-sync/manifest.json"));
+        assert!(st.files.contains_key("/dav/apmux-sync/manifest.json"));
         let man: Manifest =
-            serde_json::from_slice(&st.files["/dav/aimux-sync/manifest.json"]).unwrap();
+            serde_json::from_slice(&st.files["/dav/apmux-sync/manifest.json"]).unwrap();
         assert_eq!(man.sha256, sha256_hex(&bytes));
+    }
+
+    #[test]
+    fn namespace_migration_copies_legacy_files_and_deletes_old() {
+        let (_td, paths) = setup_paths();
+        let srv = MockServer::start();
+        let url = srv.collection_url("/dav");
+        // Pre-seed the pre-rename collection with store + manifest + the
+        // outer collection marker; leave the new namespace absent.
+        {
+            let mut st = srv.state.lock().unwrap();
+            st.collections.insert("/dav".into());
+            st.collections.insert("/dav/aimux-sync".into());
+            st.files.insert(
+                "/dav/aimux-sync/store.json".into(),
+                b"{\"legacy\":true}".to_vec(),
+            );
+            st.files.insert(
+                "/dav/aimux-sync/manifest.json".into(),
+                serde_json::to_vec(&Manifest {
+                    format: MANIFEST_FORMAT.into(),
+                    version: 1,
+                    created_at: "2026-01-01T00:00:00Z".into(),
+                    device: "old".into(),
+                    bytes: 14,
+                    sha256: "deadbeef".into(),
+                })
+                .unwrap(),
+            );
+        }
+        // Pre-write a webdav config that points at the mock server so
+        // migrate_remote_namespace() finds it on the next setup() call.
+        let cfg = WebDavConfig {
+            url: url.clone(),
+            username: "u".into(),
+            password: "p".into(),
+            last_pulled_sha256: String::new(),
+            last_pushed_sha256: String::new(),
+            last_sync_at: String::new(),
+        };
+        save_config(&paths, &cfg).unwrap();
+        // setup() runs migrate_remote_namespace() before writing the (new) config.
+        setup(&paths, url, "u".into(), "p".into()).unwrap();
+        let st = srv.state.lock().unwrap();
+        assert_eq!(
+            st.files
+                .get("/dav/apmux-sync/store.json")
+                .map(|v| v.as_slice()),
+            Some(&b"{\"legacy\":true}"[..]),
+            "store must be copied to the new namespace"
+        );
+        let man: Manifest =
+            serde_json::from_slice(&st.files["/dav/apmux-sync/manifest.json"]).unwrap();
+        assert_eq!(man.device, "old");
+        assert!(
+            !st.files.contains_key("/dav/aimux-sync/store.json"),
+            "legacy store file must be deleted"
+        );
+        assert!(
+            !st.files.contains_key("/dav/aimux-sync/manifest.json"),
+            "legacy manifest file must be deleted"
+        );
+        assert!(
+            !st.collections.contains("/dav/aimux-sync"),
+            "legacy collection must be deleted"
+        );
+    }
+
+    #[test]
+    fn namespace_migration_is_noop_when_old_absent() {
+        let (_td, paths) = setup_paths();
+        let srv = MockServer::start();
+        let url = srv.collection_url("/dav");
+        // No aimux-sync on the server → migrate must skip silently, and no
+        // legacy data must be deleted or copied. setup() itself is allowed
+        // to MKCOL the user collection.
+        setup(&paths, url, "u".into(), "p".into()).unwrap();
+        let st = srv.state.lock().unwrap();
+        assert!(
+            st.files.is_empty(),
+            "no files should be written: {:?}",
+            st.files.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            !st.collections.contains("/dav/aimux-sync"),
+            "legacy collection must never be created"
+        );
     }
 }

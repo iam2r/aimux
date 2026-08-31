@@ -2,12 +2,12 @@
 #
 # A change file looks like:
 #   ---
-#   aimux: minor        # minor | patch | major
+#   apmux: minor        # minor | patch | major
 #   ---
 #   One-line summary for the changelog.
 #
 # Commit messages are intentionally ignored as a version source.
-[packages.aimux]
+[packages.apmux]
 versioned_files = ["Cargo.toml", "Cargo.lock"]
 changelog = "CHANGELOG.md"
 

@@ -212,7 +212,7 @@ impl AgentAdapter for ClaudeAdapter {
 
 fn patch_claude_env(doc: &mut Value, provider: &Provider) -> Result<()> {
     // The official row hands Claude Code back to its native subscription:
-    // strip every aimux-owned key so its own login takes over.
+    // strip every apmux-owned key so its own login takes over.
     if provider.official {
         for key in [
             "ANTHROPIC_BASE_URL",

@@ -86,7 +86,7 @@ mod sheet_tests {
         assert!(data.contains("Backups:\n"), "{data}");
         assert!(data.contains("Sync:\n"), "{data}");
         assert!(data.contains("b                    snapshot"), "{data}");
-        assert!(data.contains("aimux-sync"), "{data}");
+        assert!(data.contains("apmux-sync"), "{data}");
         // group header appears once
         assert_eq!(data.matches("Backups:").count(), 1);
     }

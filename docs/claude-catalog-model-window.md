@@ -1,9 +1,9 @@
 # claude 目录与模型窗口（Catalog 同构）
 
-> 状态：v1 **已实施**（commit `89954de` / aimux v0.1.11+），等待评审。
+> 状态：v1 **已实施**（commit `89954de` / apmux v0.1.11+），等待评审。
 > 背景是 Claude Code 对非常规模型 ID（如网关别名 `hilinkup/z-ai/glm-5.3-flash`）
 > 的未知模型提示，要求手动设 `CLAUDE_CODE_MAX_CONTEXT_TOKENS` 或在
-> `modelOverrides` 中映射。aimux v0.1.10 之前只把 `ANTHROPIC_MODEL` 写进
+> `modelOverrides` 中映射。apmux v0.1.10 之前只把 `ANTHROPIC_MODEL` 写进
 > `settings.json`，代理行必然触发该提示。v1 在每个 claude provider 上引入
 > `catalog: Vec<ModelEntry>`，apply 阶段写 `modelOverrides` + `MAX_CONTEXT_TOKENS`。
 > 仍有 §8 列出的几个跟踪项。
@@ -22,7 +22,7 @@
 > CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT=1 restores the previous
 > wait-for-the-API behavior.`
 
-**目标**：让 aimux 代理行自带这些旋钮，且数据模型与 codex/pi 一致（catalog 同构，
+**目标**：让 apmux 代理行自带这些旋钮，且数据模型与 codex/pi 一致（catalog 同构，
 context_tokens 在每行里直接编辑），live `settings.json` 完全由 catalog + slots + quick
 items 推出。
 
@@ -45,9 +45,9 @@ items 推出。
 
 ---
 
-## 3. aimux 侧已核实事实
+## 3. apmux 侧已核实事实
 
-- **`Provider.snippet`**（JSON SSOT）→ `apply` 时 deep-merge 进 `~/.claude/settings.json`；aimux 自有 env 键（`ANTHROPIC_BASE_URL`/auth/model/5 slots）由 `patch_claude_env` 写入，**后于 snippet 写入，优先**（merge → override）。
+- **`Provider.snippet`**（JSON SSOT）→ `apply` 时 deep-merge 进 `~/.claude/settings.json`；apmux 自有 env 键（`ANTHROPIC_BASE_URL`/auth/model/5 slots）由 `patch_claude_env` 写入，**后于 snippet 写入，优先**（merge → override）。
 - **`quick.rs::CLAUDE`** 已有 5 项 `QuickItem`（如 `teammates` → `env.CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`），通过 `apply_snippet` / `remove_snippet` 在 `Provider.snippet` 上 merge/unmerge。TUI 通过 form.rs 的 `models_summary` 与 models 页的 `ModelPicker` 渲染。
 - **`ModelUi` 枚举**：`Catalog { fields }`（codex/pi/opencode）vs `Slots { slots }`（claude 唯一）。catalog 编辑器 `CatalogEditor` 已支持 Id/Label/ContextWindow/MaxTokens 增删行与字段编辑。
 - **`ModelEntry`**（`store.rs`）：`{ id, label, context_window, max_tokens }`。codex adapter 已在消费 `context_window` 写 `model_providers` 的 `context_window`/`max_context_window`。
@@ -206,7 +206,7 @@ quickitem label 可保留 §4.4 现有的"网关若改写溢出报错文案..."�
 
 **决策**：当前环境 Claude Code 为 v2.1.251（≥ v2.1.200），覆盖 `ANTHROPIC_DEFAULT_*_MODEL` 经 `modelOverrides` 改写的行为；无需版本探测，quickitem label 也不必附加版本要求。
 
-**Why**：`/home/razo/.local/share/claude/versions/2.1.251` 二进制已安装（ELF 格式、可执行）。v2.1.200 改写行为在该版本之后，2.1.251 自然覆盖——二进制中 `ef`（key→value）与 `yMe`（value→key）改写函数均为 alive 状态。无需运行时 probe，因为本机即可假定 ≥ 2.1.200；若用户用更老版本，问题在"该用户应升级"而非 aimux 兼容。
+**Why**：`/home/razo/.local/share/claude/versions/2.1.251` 二进制已安装（ELF 格式、可执行）。v2.1.200 改写行为在该版本之后，2.1.251 自然覆盖——二进制中 `ef`（key→value）与 `yMe`（value→key）改写函数均为 alive 状态。无需运行时 probe，因为本机即可假定 ≥ 2.1.200；若用户用更老版本，问题在"该用户应升级"而非 apmux 兼容。
 
 ### 疑问 4：`CLAUDE_CODE_MAX_CONTEXT_TOKENS` 对识别后的 modelOverrides 值是否仍生效
 **现象**：docs 说"id doesn't start with `claude-` (any casing) and can't be resolved to a
@@ -241,7 +241,7 @@ opus 选中，单一 `CLAUDE_CODE_MAX_CONTEXT_TOKENS`（取 Default）会与 hai
 的 `append_responses_input_as_chat_messages` 在最近修复中也合并了 assistant 文本与
 `function_call`、清掉 parts-array 残留，是个"模型层有偏好 → 协议层兜底"的成功例子。
 
-**决策**：Claude Code 侧**不存在**"模型自报窗口"的协议扩展；`CLAUDE_CODE_MAX_CONTEXT_TOKENS` + `modelOverrides` 是仅有的两条机制。aimux 无需在 `claude.rs` 中追加兼容性拼接。
+**决策**：Claude Code 侧**不存在**"模型自报窗口"的协议扩展；`CLAUDE_CODE_MAX_CONTEXT_TOKENS` + `modelOverrides` 是仅有的两条机制。apmux 无需在 `claude.rs` 中追加兼容性拼接。
 
 **Why**：`code.claude.com/docs/en/model-config` / `env-vars` / `settings`（§2 源）已枚举所有相关 env 与 settings 键；§2 表的 6 行穷尽 `MAX_CONTEXT_TOKENS` / `DISABLE_UNKNOWN_*` / `modelOverrides` / `[1m]` / `DISABLE_1M_*` / `AUTO_COMPACT_WINDOW` / `AUTOCOMPACT_PCT_OVERRIDE`，无任何"模型在请求中声明窗口"的 client 端钩子。cc-switch-cli 的 `transform_codex_chat.rs` 解决的是 OpenAI Responses ↔ Chat Completions 协议差异，与"模型窗口声明"不同维度，不可类比。
 
@@ -249,11 +249,11 @@ opus 选中，单一 `CLAUDE_CODE_MAX_CONTEXT_TOKENS`（取 Default）会与 hai
 
 ## 7. 实施时间线
 
-- **2026-08-29 commit `89954de` / aimux v0.1.11** — §1–§6 全部落地，§4.3 表的 live 生成规则实现。CI 在 Windows 上因 pre-existing `try_launch::end_to_end_launch_uses_isolated_env`（与本设计无关）失败，不影响 release 流程。
+- **2026-08-29 commit `89954de` / apmux v0.1.11** — §1–§6 全部落地，§4.3 表的 live 生成规则实现。CI 在 Windows 上因 pre-existing `try_launch::end_to_end_launch_uses_isolated_env`（与本设计无关）失败，不影响 release 流程。
 
 ## 8. Open Risks
 
-1. **Q5 min() 过度保守**：若某行 `context_window` 误填小值（如占位 1）会被全表 min 拉低，污染 `MAX_CONTEXT_TOKENS`。**已落 mitigation**：`CatalogEditor::commit_edit` 在 aimux v0.1.12 起对 `ContextWindow` 解析后过滤 `>= 1000`，小于阈值视为 None 不写入。重复 target 行为在 `claude.rs::patch_claude_env` 里**last-wins**（按 `provider.catalog` Vec 顺序）—— 用户两行映射到 `claude-sonnet-4-6` 时后者胜出；TUI 当前没有 visual warning（属于 §4.2 "搬家"的同族 UX 问题）。
+1. **Q5 min() 过度保守**：若某行 `context_window` 误填小值（如占位 1）会被全表 min 拉低，污染 `MAX_CONTEXT_TOKENS`。**已落 mitigation**：`CatalogEditor::commit_edit` 在 apmux v0.1.12 起对 `ContextWindow` 解析后过滤 `>= 1000`，小于阈值视为 None 不写入。重复 target 行为在 `claude.rs::patch_claude_env` 里**last-wins**（按 `provider.catalog` Vec 顺序）—— 用户两行映射到 `claude-sonnet-4-6` 时后者胜出；TUI 当前没有 visual warning（属于 §4.2 "搬家"的同族 UX 问题）。
 2. **slot 重新指派的撤销语义**：取消 slot 落点后旧行直接清空（in-editor `delete_row` 也清 `slot_owner`），状态栏会提示"已清 N 个 slot"；但若用户希望"回滚到上一个拥有者"——见 §4.2 "搬家"措辞——需要单独设计。**待建 issue**：TUI 重做行重排时一并处理。
 3. **`modelOverrides` 多版本兼容性**：v2.1.200 之前的 Claude Code 仍会旁路 env 改写。Q3 决策只覆盖本机 2.1.251，跨用户安装版本无法保证。**待建 issue**：README 加 `requires Claude Code >= v2.1.200` 提示。
 4. **agate 未来若新增 Anthropic 错误改写**：Q2 结论依赖"agate 不动 Anthropic wire 错误"的现状。agate 升级时需保留 `createAnthropicErrorBody(message, type)` 透传契约——可考虑在 agate 测试里加一条"Anthropic 4xx 文案保真"用例，但属于跨仓工作。**待建 issue**。

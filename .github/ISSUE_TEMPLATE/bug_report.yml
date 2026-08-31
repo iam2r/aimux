@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a problem with aimux
+description: Report a problem with apmux
 labels: [bug]
 body:
   - type: markdown
@@ -15,8 +15,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: aimux version
-      description: "`aimux --version`, or the tag you installed."
+      label: apmux version
+      description: "`apmux --version`, or the tag you installed."
     validations:
       required: true
   - type: dropdown
@@ -38,4 +38,4 @@ body:
     id: logs
     attributes:
       label: Logs / screenshots
-      description: "`aimux` logs, panic output, or screenshots of the TUI."
+      description: "`apmux` logs, panic output, or screenshots of the TUI."

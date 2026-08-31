@@ -1,8 +1,8 @@
 {
-	"name": "aimux",
+	"name": "apmux",
 	"version": "0.0.0",
 	"private": true,
-	"description": "Git hooks / commit tooling for the aimux Rust workspace (hooks are optional — CI is the enforcing gate).",
+	"description": "Git hooks / commit tooling for the apmux Rust workspace (hooks are optional \u2014 CI is the enforcing gate).",
 	"scripts": {
 		"preinstall": "npx only-allow pnpm",
 		"prepare": "husky"

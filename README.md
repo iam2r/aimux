@@ -1,6 +1,6 @@
-# aimux
+# apmux
 
-Lightweight local tool to **switch providers** for Claude Code, Codex, OpenCode, and Pi Coding Agent, with rotating local backups and WebDAV cloud backup. No GUI. Run `aimux` with no arguments for the TUI, or use subcommands in scripts.
+Lightweight local tool to **switch providers** for Claude Code, Codex, OpenCode, and Pi Coding Agent, with rotating local backups and WebDAV cloud backup. No GUI. Run `apmux` with no arguments for the TUI, or use subcommands in scripts.
 
 Out of scope: proxy, MCP management, skills, sessions/usage, OAuth account managers, daemon, Gemini CLI.
 
@@ -11,20 +11,20 @@ Out of scope: proxy, MCP management, skills, sessions/usage, OAuth account manag
 Linux / macOS:
 
 ```bash
-curl -fsSL https://github.com/iam2r/aimux/releases/latest/download/install.sh | bash
+curl -fsSL https://github.com/iam2r/apmux/releases/latest/download/install.sh | bash
 ```
 
 Windows (PowerShell):
 
 ```powershell
-irm https://github.com/iam2r/aimux/releases/latest/download/install.ps1 | iex
+irm https://github.com/iam2r/apmux/releases/latest/download/install.ps1 | iex
 ```
 
-The Unix installer puts `aimux` in `~/.local/bin` (override with `AIMUX_INSTALL_DIR`). If that directory is not on `PATH`, it appends a managed block to `~/.bashrc` / `~/.zshrc` / fish config. Windows installs to `%LOCALAPPDATA%\aimux\bin` and adds it to the user `Path`. Linux downloads are static musl builds. After install, `aimux update` replaces this binary from GitHub Releases (`aimux update --check` only reports).
+The Unix installer puts `apmux` in `~/.local/bin` (override with `APMUX_INSTALL_DIR`). If that directory is not on `PATH`, it appends a managed block to `~/.bashrc` / `~/.zshrc` / fish config. Windows installs to `%LOCALAPPDATA%\apmux\bin` and adds it to the user `Path`. Linux downloads are static musl builds. After install, `apmux update` replaces this binary from GitHub Releases (`apmux update --check` only reports).
 
 ```bash
 # specific version
-curl -fsSL https://github.com/iam2r/aimux/releases/latest/download/install.sh | bash -s -- v0.1.0
+curl -fsSL https://github.com/iam2r/apmux/releases/latest/download/install.sh | bash -s -- v0.1.0
 AIMUX_SKIP_PATH=1 bash install.sh   # install only; do not edit shell rc
 ```
 
@@ -39,7 +39,7 @@ Releases are maintainer-driven, still powered by **changeset files** (via
 
    ```markdown
    ---
-   aimux: minor        # minor | patch | major
+   apmux: minor        # minor | patch | major
    ---
    One-line summary for the changelog.
    ```
@@ -47,29 +47,29 @@ Releases are maintainer-driven, still powered by **changeset files** (via
 2. Pushing change files to `develop` makes CI consume them, open a
    **Release PR** (develop → main) that bumps `Cargo.toml` and `CHANGELOG.md`,
    and auto-merge it.
-3. The same run tags `aimux/vX.Y.Z`, builds installers and archives, and
+3. The same run tags `apmux/vX.Y.Z`, builds installers and archives, and
    back-merges `main` into `develop`. No local tooling required.
 
 From source (Rust stable):
 
 ```bash
-git clone https://github.com/iam2r/aimux.git
-cd aimux
+git clone https://github.com/iam2r/apmux.git
+cd apmux
 cargo install --path .
-# or: cargo build --release   → target/release/aimux
+# or: cargo build --release   → target/release/apmux
 ```
 
-Config lives in `$HOME/.aimux` (`store.json`, `webdav.json`, `backups/`). Override with `AIMUX_CONFIG_DIR`.
+Config lives in `$HOME/.apmux` (`store.json`, `webdav.json`, `backups/`). Override with `APMUX_CONFIG_DIR`.
 
 ## Migrate from cc-switch
 
-`aimux import` copies Claude / Codex / OpenCode providers from `~/.cc-switch/cc-switch.db` into `store.json`, and WebDAV credentials from `~/.cc-switch/settings.json` into `webdav.json` (`baseUrl` only; cc-switch's `remoteRoot` / `cc-switch-sync` is ignored). Skips Gemini, Grok, and official empties. Does **not** write live CLI files, MKCOL, or pull the remote snapshot. Pi and other apps already in the store are kept. Existing `webdav.json` is left alone unless you pass `--force`.
+`apmux import` copies Claude / Codex / OpenCode providers from `~/.cc-switch/cc-switch.db` into `store.json`, and WebDAV credentials from `~/.cc-switch/settings.json` into `webdav.json` (`baseUrl` only; cc-switch's `remoteRoot` / `cc-switch-sync` is ignored). Skips Gemini, Grok, and official empties. Does **not** write live CLI files, MKCOL, or pull the remote snapshot. Pi and other apps already in the store are kept. Existing `webdav.json` is left alone unless you pass `--force`.
 
 ```bash
-aimux import --dry-run
-aimux import
-aimux list
-aimux use <name>
+apmux import --dry-run
+apmux import
+apmux list
+apmux use <name>
 ```
 
 Default is merge (skip existing ids). `--force` overwrites colliding ids, `current` for imported apps, and `webdav.json` (timestamp backup first). Keys are masked in the report.
@@ -77,27 +77,27 @@ Default is merge (skip existing ids). `--force` overwrites colliding ids, `curre
 ## Usage
 
 ```bash
-aimux                              # TUI
-aimux list [--app <app>] [--json]
-aimux current [--app <app>] [--json]
-aimux use <name> [--app <app>]
-aimux add --app <app> --name <name> --base-url <url> --api-key <key> \
+apmux                              # TUI
+apmux list [--app <app>] [--json]
+apmux current [--app <app>] [--json]
+apmux use <name> [--app <app>]
+apmux add --app <app> --name <name> --base-url <url> --api-key <key> \
         [--model <id>] [--extra key=value]... [--apply-snippet]
-aimux edit <name> [--app] [--name] [--base-url] [--api-key] \
+apmux edit <name> [--app] [--name] [--base-url] [--api-key] \
         [--model <id> | --clear-model] [--extra key=value]... \
         [--apply-snippet | --no-apply-snippet]
-aimux snippet <name> [--app <app>] [--set '<json>' | --clear]
-aimux delete <name> [--app] [--yes]
-aimux backup [--name <name>]
-aimux restore <name> [--yes] [--no-apply]
-aimux backups
-aimux sync setup --url <webdav-root> --username <user> --password <pass>
-aimux sync push [--force]
-aimux sync pull [--force]
-aimux sync status
-aimux import [--db <path>] [--settings <path>] [--dry-run] [--force]
-aimux update [--version <tag>]
-aimux update --check [--json]
+apmux snippet <name> [--app <app>] [--set '<json>' | --clear]
+apmux delete <name> [--app] [--yes]
+apmux backup [--name <name>]
+apmux restore <name> [--yes] [--no-apply]
+apmux backups
+apmux sync setup --url <webdav-root> --username <user> --password <pass>
+apmux sync push [--force]
+apmux sync pull [--force]
+apmux sync status
+apmux import [--db <path>] [--settings <path>] [--dry-run] [--force]
+apmux update [--version <tag>]
+apmux update --check [--json]
 ```
 
 `<app>`: `claude` / `codex` / `opencode` / `pi`. Exit codes: `0` success, `1` user/validation error, `2` I/O or network.
@@ -121,7 +121,7 @@ CLI clap help stays English so scripts and issue reports stay greppable. TUI str
 
 ## TUI keys
 
-Bare `aimux` opens the TUI. `?` shows help for the current page.
+Bare `apmux` opens the TUI. `?` shows help for the current page.
 
 Provider list:
 
@@ -144,7 +144,7 @@ Forms: `Tab` / ↑ ↓ change field, Space cycles options **or fetches the model
 
 Catalog apps (OpenCode, Pi, Codex): Space on Model fetches, Space toggles rows, Enter opens a catalog editor (`id` / `label` / `context_window` / `max_tokens`; Codex has no max-tokens column). Claude: the Slots field opens the table; Space picks one id for the focused slot; `a` copies that id onto the other slots including default.
 
-**Snippet** on the add/edit form is per-provider JSON. **Built-in checkboxes** (Claude hide-attribution / Teammates / Tool Search / effort / auto-upgrade; Codex Goal mode) sit above the JSON body and compose it. Opt in with **Apply snippet**, or `aimux add/edit --apply-snippet`. The snippet merges first; owned fields win. `aimux snippet <name>` prints/sets/clears that provider’s JSON.
+**Snippet** on the add/edit form is per-provider JSON. **Built-in checkboxes** (Claude hide-attribution / Teammates / Tool Search / effort / auto-upgrade; Codex Goal mode) sit above the JSON body and compose it. Opt in with **Apply snippet**, or `apmux add/edit --apply-snippet`. The snippet merges first; owned fields win. `apmux snippet <name>` prints/sets/clears that provider’s JSON.
 
 **Official rows** (`claude-official`, `codex-official`) are built in and seeded automatically: switching to one hands the CLI back to its native subscription (Claude Code login / ChatGPT login). They cannot be edited or deleted — pick one and press Enter to switch.
 
@@ -156,18 +156,18 @@ Settings (`g`): Space/Enter changes the focused row. App detection defaults to *
 
 ## WebDAV
 
-`--url` is the WebDAV root. aimux always stores files under the built-in namespace `aimux-sync`. The TUI shows that namespace on its own row; it cannot be edited.
+`--url` is the WebDAV root. apmux always stores files under the built-in namespace `apmux-sync`. The TUI shows that namespace on its own row; it cannot be edited.
 
 ```bash
-aimux sync setup \
+apmux sync setup \
   --url 'https://webdav.example.com/' \
   --username 'you' \
   --password '<password>'
 ```
 
-`--url` / `--username` / `--password` are always required. Non-localhost `http://` is rejected. Setup MKCOLs `{url}/aimux-sync` and stores **the root URL you submitted**.
+`--url` / `--username` / `--password` are always required. Non-localhost `http://` is rejected. Setup MKCOLs `{url}/apmux-sync` and stores **the root URL you submitted**.
 
-TUI: `s` → `e`, fill URL / user / password. Namespace is a separate read-only row (`aimux-sync`).
+TUI: `s` → `e`, fill URL / user / password. Namespace is a separate read-only row (`apmux-sync`).
 
 `push` / `pull` take a timestamp backup before overwriting the store. On conflict, push is refused; `pull` or `--force`. `status` never prints the password.
 
@@ -175,7 +175,7 @@ Credentials: `$AIMUX_CONFIG_DIR/webdav.json`, mode `0600`.
 
 ## Project `opencode.json` shadowing
 
-aimux writes **global** live files only:
+apmux writes **global** live files only:
 
 | App | Global live |
 |-----|-------------|
@@ -184,17 +184,17 @@ aimux writes **global** live files only:
 | OpenCode | `~/.config/opencode/opencode.json` |
 | Pi | `~/.pi/agent/models.json` + `settings.json` |
 
-OpenCode itself prefers a **project** `opencode.json` / `opencode.jsonc`, which can shadow the global file. aimux does not scan or rewrite project files. Pi: project `.pi/` is never touched.
+OpenCode itself prefers a **project** `opencode.json` / `opencode.jsonc`, which can shadow the global file. apmux does not scan or rewrite project files. Pi: project `.pi/` is never touched.
 
-If the target CLI is not initialized (resolved config dir missing), aimux records `current` but **does not** create the directory or write live files.
+If the target CLI is not initialized (resolved config dir missing), apmux records `current` but **does not** create the directory or write live files.
 
 ## Do not run concurrent writers
 
-v1 has **no** `store.json` lock. Two parallel `aimux use` / `edit` / `delete` / `restore` / `sync push|pull` processes can lose updates (atomic rename only prevents torn writes).
+v1 has **no** `store.json` lock. Two parallel `apmux use` / `edit` / `delete` / `restore` / `sync push|pull` processes can lose updates (atomic rename only prevents torn writes).
 
 ## Secrets and permissions
 
-- `store.json`, `webdav.json`, backups: Unix `chmod 0600` after every save; aimux dir `0700`.
+- `store.json`, `webdav.json`, backups: Unix `chmod 0600` after every save; apmux dir `0700`.
 - Secret live files (Claude `settings.json`, Codex `auth.json`, OpenCode `opencode.json`, Pi `models.json`): new files `0600`; existing mode kept.
 - TUI/CLI mask API keys by default. Logs never record `api_key`, passwords, or Authorization headers.
 
@@ -206,7 +206,7 @@ Tests inject tempfile `Paths` and must not write the host:
 - `~/.codex`
 - `~/.config/opencode`
 - `~/.pi`
-- real `~/.aimux`
+- real `~/.apmux`
 
 `cargo test` panics if an apply would hit those paths and `Paths.home` is not a tempfile. Do not use process `HOME` as the main isolation mechanism.
 
@@ -220,7 +220,7 @@ cargo clippy --all-targets -- -D warnings
 
 ## Windows
 
-Prefer the PowerShell one-liner above. GitHub Actions: PRs get a policy gate plus `fmt` + `clippy` + `test` on `ubuntu-latest` and `test` on Windows; the release bot tags `aimux/vX.Y.Z` and publishes Linux/macOS/Windows release assets (a manual `v*` tag push triggers the same build).
+Prefer the PowerShell one-liner above. GitHub Actions: PRs get a policy gate plus `fmt` + `clippy` + `test` on `ubuntu-latest` and `test` on Windows; the release bot tags `apmux/vX.Y.Z` and publishes Linux/macOS/Windows release assets (a manual `v*` tag push triggers the same build).
 
 On Windows:
 
