@@ -72,8 +72,9 @@ change files and push again.
 3. Push to `develop`. The release bot takes over:
    consumes the change files → bumps `Cargo.toml` / `Cargo.lock` and updates
    `CHANGELOG.md` on a `release` branch → opens a Release PR (develop → main)
-   and auto-merges it → tags `apmux/vX.Y.Z` → builds binaries for all
-   platforms → back-merges `main` into `develop` so the bump syncs back.
+   for you to merge → the push to `main` tags `apmux/vX.Y.Z` → builds
+   binaries for all platforms → back-merges `main` into `develop` so the
+   bump syncs back.
 
 Hotfixes also go through `develop` (push the fix + change file there — it's
 the fastest path to a release). `main` never takes feature work.

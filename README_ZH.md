@@ -41,7 +41,7 @@ APMUX_SKIP_PATH=1 bash install.sh   # 只安装，不改 shell rc
    写进 changelog 的一句话。
    ```
 
-2. 把变更文件推到 `develop` 后，CI 消费这些文件、开 **Release PR**（develop → main，改 `Cargo.toml` 和 `CHANGELOG.md`）并自动合并。
+2. 把变更文件推到 `develop` 后，CI 消费这些文件、开 **Release PR**（develop → main，改 `Cargo.toml` 和 `CHANGELOG.md`）。你手动 merge 后，push 到 `main` 触发打 tag、构建发布以及回合并 `develop`。
 3. 同一次 run 里打 `apmux/vX.Y.Z` 标签、编译安装包，并把 `main` 回合并到 `develop`。本地无需安装任何工具。
 
 从源码（Rust stable）：

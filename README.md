@@ -44,11 +44,11 @@ Releases are maintainer-driven, still powered by **changeset files** (via
    One-line summary for the changelog.
    ```
 
-2. Pushing change files to `develop` makes CI consume them, open a
-   **Release PR** (develop → main) that bumps `Cargo.toml` and `CHANGELOG.md`,
-   and auto-merge it.
-3. The same run tags `apmux/vX.Y.Z`, builds installers and archives, and
-   back-merges `main` into `develop`. No local tooling required.
+2. Pushing change files to `develop` makes CI consume them and open a
+   **Release PR** (develop → main) that bumps `Cargo.toml` and `CHANGELOG.md`.
+3. You merge the Release PR by hand. The push to `main` then tags
+   `apmux/vX.Y.Z`, builds installers and archives, and back-merges
+   `main` into `develop`. No local tooling required.
 
 From source (Rust stable):
 
