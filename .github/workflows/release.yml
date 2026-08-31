@@ -37,6 +37,7 @@ concurrency:
 permissions:
   contents: write
   pull-requests: write
+  actions: write
 
 jobs:
   prepare-release:
@@ -105,6 +106,7 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.sha }}
       - name: Ensure release tag exists for the merged version
+        id: ensure-tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -117,9 +119,10 @@ jobs:
           TAG="apmux/v${VERSION}"
           SHA="$(git rev-parse HEAD)"
           echo "version=${VERSION} tag=${TAG} sha=${SHA}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1 \
             || gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
-            echo "Tag ${TAG} already exists — skipping."
+            echo "Tag ${TAG} already exists — skipping push (build will still be dispatched)."
             exit 0
           fi
           git config user.name "github-actions[bot]"
@@ -130,7 +133,19 @@ jobs:
               -f ref="refs/tags/${TAG}" \
               -f sha="${SHA}"
           fi
-          echo "created ${TAG} at ${SHA} — release-build.yml will build the binaries"
+          echo "created ${TAG} at ${SHA}"
+      # GITHUB_TOKEN tag pushes do not start a fresh workflow run, so explicitly
+      # dispatch release-build.yml instead of relying on the `push: tags` filter.
+      - name: Dispatch build workflow
+        if: steps.ensure-tag.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.ensure-tag.outputs.tag }}"
+          gh workflow run release-build.yml -f "tag=${TAG}" \
+            --repo "$GITHUB_REPOSITORY"
+          echo "dispatched release-build.yml for ${TAG}"
       - name: Merge main back into develop
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
