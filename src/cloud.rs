@@ -133,73 +133,117 @@ pub(crate) fn setup(paths: &Paths, url: String, username: String, password: Stri
     save_config(paths, &cfg)
 }
 
+/// Remote storage backend for the sync protocol. WebDAV and GitHub Gist
+/// both store the same `manifest.json` + `store.json` pair; this trait is
+/// the only difference between them. All methods are blocking.
+pub(crate) trait Remote {
+    /// Reachability/container check before any sync op.
+    fn ensure_ready(&self) -> Result<()>;
+    /// Read a named file; `None` when absent.
+    fn get(&self, name: &str) -> Result<Option<Vec<u8>>>;
+    /// Write a named file.
+    fn put(&self, name: &str, body: &[u8]) -> Result<()>;
+}
+
+/// The mutable sync bookkeeping shared by both backends.
+#[derive(Debug, Default)]
+pub(crate) struct SyncState {
+    pub last_pulled_sha256: String,
+    pub last_pushed_sha256: String,
+    pub last_sync_at: String,
+}
+
+struct DavRemote {
+    client: DavClient,
+    collection: String,
+}
+
+impl Remote for DavRemote {
+    fn ensure_ready(&self) -> Result<()> {
+        webdav::block_on(async {
+            self.client
+                .ensure_remote_directories(&self.collection)
+                .await
+        })
+    }
+
+    fn get(&self, name: &str) -> Result<Option<Vec<u8>>> {
+        let url = webdav::join_file(&self.collection, name)?;
+        webdav::block_on(async { self.client.get(&url).await })
+    }
+
+    fn put(&self, name: &str, body: &[u8]) -> Result<()> {
+        let url = webdav::join_file(&self.collection, name)?;
+        webdav::block_on(async { self.client.put(&url, body).await })
+    }
+}
+
 pub(crate) fn push(paths: &Paths, force: bool) -> Result<String> {
     migrate_remote_namespace(paths);
     let mut cfg = load_config(paths)?;
+    let remote = DavRemote {
+        client: DavClient::new(&cfg.username, &cfg.password)?,
+        collection: webdav::namespaced_collection(&cfg.url)?,
+    };
+    let mut state = SyncState {
+        last_pulled_sha256: std::mem::take(&mut cfg.last_pulled_sha256),
+        last_pushed_sha256: std::mem::take(&mut cfg.last_pushed_sha256),
+        last_sync_at: std::mem::take(&mut cfg.last_sync_at),
+    };
+    let sha = push_with(paths, &remote, &mut state, force, "webdav")?;
+    cfg.last_pulled_sha256 = state.last_pulled_sha256;
+    cfg.last_pushed_sha256 = state.last_pushed_sha256;
+    cfg.last_sync_at = state.last_sync_at;
+    save_config(paths, &cfg)?;
+    Ok(sha)
+}
+
+/// Protocol shared by every backend: conflict check, local backup, then
+/// put store + manifest and record the synced hashes in `state`.
+pub(crate) fn push_with(
+    paths: &Paths,
+    remote: &dyn Remote,
+    state: &mut SyncState,
+    force: bool,
+    log_tag: &str,
+) -> Result<String> {
     let local_bytes = local_store_bytes(paths)?;
     let local_sha = sha256_hex(&local_bytes);
 
-    let username = cfg.username.clone();
-    let password = cfg.password.clone();
-    let collection = webdav::namespaced_collection(&cfg.url)?;
-    let last_pulled = cfg.last_pulled_sha256.clone();
-    let sha_check = local_sha.clone();
-    webdav::block_on(async move {
-        let client = DavClient::new(&username, &password)?;
-        client.ensure_remote_directories(&collection).await?;
-        let manifest_url = webdav::join_file(&collection, "manifest.json")?;
-        let remote_sha = match client.get(&manifest_url).await? {
-            None => String::new(),
-            Some(body) => match parse_manifest(&body) {
-                Ok(m) => m.sha256,
-                Err(_) if force => {
-                    log::info!("webdav.conflict unreadable remote manifest; --force overwrites");
-                    String::new()
-                }
-                Err(e) => {
-                    anyhow::bail!(
-                        "remote manifest.json is unreadable ({e:#}); pass --force to overwrite"
-                    );
-                }
-            },
-        };
-        if push_conflict(&remote_sha, &last_pulled, &sha_check) && !force {
-            log::info!("webdav.conflict sha={remote_sha}");
-            anyhow::bail!("remote store has changed; run apmux sync pull or pass --force");
-        }
-        Ok(())
-    })?;
+    remote.ensure_ready()?;
+    let remote_sha = match remote.get("manifest.json")? {
+        None => String::new(),
+        Some(body) => match parse_manifest(&body) {
+            Ok(m) => m.sha256,
+            Err(_) if force => {
+                log::info!("{log_tag}.conflict unreadable remote manifest; --force overwrites");
+                String::new()
+            }
+            Err(e) => {
+                anyhow::bail!(
+                    "remote manifest.json is unreadable ({e:#}); pass --force to overwrite"
+                );
+            }
+        },
+    };
+    if push_conflict(&remote_sha, &state.last_pulled_sha256, &local_sha) && !force {
+        log::info!("{log_tag}.conflict sha={remote_sha}");
+        anyhow::bail!(
+            "remote store has changed; run {} sync pull or pass --force",
+            crate::name::NAME
+        );
+    }
 
     backup::create(paths, None)?;
 
-    let username = cfg.username.clone();
-    let password = cfg.password.clone();
-    let collection = webdav::namespaced_collection(&cfg.url)?;
-    let sha_put = local_sha.clone();
-    let body = local_bytes;
-    webdav::block_on(async move {
-        let client = DavClient::new(&username, &password)?;
-        let store_url = webdav::join_file(&collection, "store.json")?;
-        let manifest_url = webdav::join_file(&collection, "manifest.json")?;
-        client.put(&store_url, &body).await?;
-        let manifest = Manifest {
-            format: MANIFEST_FORMAT.to_string(),
-            version: MANIFEST_VERSION,
-            created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-            device: device_name(),
-            bytes: body.len() as u64,
-            sha256: sha_put,
-        };
-        let man_bytes = serde_json::to_vec_pretty(&manifest).context("serialize manifest.json")?;
-        client.put(&manifest_url, &man_bytes).await?;
-        Ok(())
-    })?;
+    remote.put("store.json", &local_bytes)?;
+    let man_bytes = build_manifest(&local_bytes, &local_sha)?.into_bytes();
+    remote.put("manifest.json", &man_bytes)?;
 
-    cfg.last_pulled_sha256 = local_sha.clone();
-    cfg.last_pushed_sha256 = local_sha.clone();
-    cfg.last_sync_at = now_local();
-    save_config(paths, &cfg)?;
-    log::info!("webdav.push sha={local_sha}");
+    state.last_pulled_sha256 = local_sha.clone();
+    state.last_pushed_sha256 = local_sha.clone();
+    state.last_sync_at = now_local();
+    log::info!("{log_tag}.push sha={local_sha}");
     Ok(local_sha)
 }
 
@@ -215,22 +259,45 @@ pub(crate) fn pull_quiet(paths: &Paths, force: bool) -> Result<String> {
 fn pull_inner(paths: &Paths, force: bool, stderr_warn: bool) -> Result<String> {
     migrate_remote_namespace(paths);
     let mut cfg = load_config(paths)?;
+    let remote = DavRemote {
+        client: DavClient::new(&cfg.username, &cfg.password)?,
+        collection: webdav::namespaced_collection(&cfg.url)?,
+    };
+    let mut state = SyncState {
+        last_pulled_sha256: std::mem::take(&mut cfg.last_pulled_sha256),
+        last_pushed_sha256: std::mem::take(&mut cfg.last_pushed_sha256),
+        last_sync_at: std::mem::take(&mut cfg.last_sync_at),
+    };
+    let sha = pull_with(paths, &remote, &mut state, force, stderr_warn, "webdav")?;
+    cfg.last_pulled_sha256 = state.last_pulled_sha256;
+    cfg.last_pushed_sha256 = state.last_pushed_sha256;
+    cfg.last_sync_at = state.last_sync_at;
+    save_config(paths, &cfg)?;
+    Ok(sha)
+}
+
+/// Protocol shared by every backend: fetch + verify manifest/store, conflict
+/// check, local backup, atomic overwrite, re-apply current provider.
+pub(crate) fn pull_with(
+    paths: &Paths,
+    remote: &dyn Remote,
+    state: &mut SyncState,
+    force: bool,
+    stderr_warn: bool,
+    log_tag: &str,
+) -> Result<String> {
     let local_bytes = local_store_bytes(paths)?;
     let local_sha = sha256_hex(&local_bytes);
-    let username = cfg.username.clone();
-    let password = cfg.password.clone();
-    let collection = webdav::namespaced_collection(&cfg.url)?;
 
-    let (remote_bytes, remote_sha) = webdav::block_on(async move {
-        let client = DavClient::new(&username, &password)?;
-        let store_url = webdav::join_file(&collection, "store.json")?;
-        let manifest_url = webdav::join_file(&collection, "manifest.json")?;
-        let man_body = client.get(&manifest_url).await?;
-        let store_body = client.get(&store_url).await?;
+    remote.ensure_ready()?;
+    let (remote_bytes, remote_sha) = {
+        let man_body = remote.get("manifest.json")?;
+        let store_body = remote.get("store.json")?;
         match (man_body, store_body) {
             (None, None) => anyhow::bail!("remote is empty; nothing to pull"),
             (None, Some(_)) => anyhow::bail!(
-                "remote store.json does not match manifest (missing manifest); re-run apmux sync push --force to repair"
+                "remote store.json does not match manifest (missing manifest); re-run {} sync push --force to repair",
+                crate::name::NAME
             ),
             (Some(_), None) => anyhow::bail!("remote manifest.json present but store.json is missing"),
             (Some(man), Some(store)) => {
@@ -238,20 +305,21 @@ fn pull_inner(paths: &Paths, force: bool, stderr_warn: bool) -> Result<String> {
                 let got = sha256_hex(&store);
                 if got != manifest.sha256 {
                     anyhow::bail!(
-                        "remote store.json does not match manifest; re-run apmux sync push --force to repair"
+                        "remote store.json does not match manifest; re-run {} sync push --force to repair",
+                        crate::name::NAME
                     );
                 }
                 if manifest.bytes != 0 && manifest.bytes != store.len() as u64 {
                     anyhow::bail!("remote store.json size does not match manifest");
                 }
                 Store::from_bytes(&store)?;
-                Ok((store, got))
+                Ok::<_, anyhow::Error>((store, got))
             }
         }
-    })?;
+    }?;
 
-    if pull_conflict(&local_sha, &cfg.last_pulled_sha256, &remote_sha) && !force {
-        log::info!("webdav.conflict sha={remote_sha}");
+    if pull_conflict(&local_sha, &state.last_pulled_sha256, &remote_sha) && !force {
+        log::info!("{log_tag}.conflict sha={remote_sha}");
         anyhow::bail!("local store has changed since last pull; pass --force to overwrite");
     }
 
@@ -262,9 +330,8 @@ fn pull_inner(paths: &Paths, force: bool, stderr_warn: bool) -> Result<String> {
     }
 
     let store = Store::from_bytes(&remote_bytes)?;
-    cfg.last_pulled_sha256 = remote_sha.clone();
-    cfg.last_sync_at = now_local();
-    save_config(paths, &cfg)?;
+    state.last_pulled_sha256 = remote_sha.clone();
+    state.last_sync_at = now_local();
     if stderr_warn {
         switch::reapply_current(paths, &store).context("store pulled but re-apply failed")?;
     } else {
@@ -277,22 +344,11 @@ pub(crate) fn status(paths: &Paths) -> Result<String> {
     migrate_remote_namespace(paths);
     let cfg = load_config(paths)?;
     let local_sha = sha256_hex(&local_store_bytes(paths)?);
-    let username = cfg.username.clone();
-    let password = cfg.password.clone();
-    let collection = webdav::namespaced_collection(&cfg.url)?;
-    let remote = webdav::block_on(async move {
-        let client = DavClient::new(&username, &password)?;
-        client.ensure_remote_directories(&collection).await?;
-        let manifest_url = webdav::join_file(&collection, "manifest.json")?;
-        match client.get(&manifest_url).await? {
-            None => Ok(RemoteInfo::Missing),
-            Some(body) => match parse_manifest(&body) {
-                Ok(m) => Ok(RemoteInfo::Sha(m.sha256)),
-                Err(_) => Ok(RemoteInfo::Unreadable),
-            },
-        }
-    });
-    let (connected, remote_sha, remote_line, conn_err) = match remote {
+    let remote = DavRemote {
+        client: DavClient::new(&cfg.username, &cfg.password)?,
+        collection: webdav::namespaced_collection(&cfg.url)?,
+    };
+    let (connected, remote_sha, remote_line, conn_err) = match remote_info(&remote) {
         Ok(RemoteInfo::Missing) => (true, String::new(), String::new(), String::new()),
         Ok(RemoteInfo::Sha(sha)) => (true, sha.clone(), sha, String::new()),
         Ok(RemoteInfo::Unreadable) => (
@@ -403,10 +459,35 @@ pub(crate) fn import_config(
     )
 }
 
-enum RemoteInfo {
+pub(crate) enum RemoteInfo {
     Missing,
     Sha(String),
     Unreadable,
+}
+
+/// Backend-neutral remote state for `status`-style output.
+pub(crate) fn remote_info(remote: &dyn Remote) -> Result<RemoteInfo> {
+    remote.ensure_ready()?;
+    match remote.get("manifest.json")? {
+        None => Ok(RemoteInfo::Missing),
+        Some(body) => match parse_manifest(&body) {
+            Ok(m) => Ok(RemoteInfo::Sha(m.sha256)),
+            Err(_) => Ok(RemoteInfo::Unreadable),
+        },
+    }
+}
+
+/// Serialized `manifest.json` for `bytes` with the given sha.
+pub(crate) fn build_manifest(bytes: &[u8], sha: &str) -> Result<String> {
+    let manifest = Manifest {
+        format: MANIFEST_FORMAT.to_string(),
+        version: MANIFEST_VERSION,
+        created_at: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        device: device_name(),
+        bytes: bytes.len() as u64,
+        sha256: sha.to_string(),
+    };
+    serde_json::to_string_pretty(&manifest).context("serialize manifest.json")
 }
 
 fn parse_manifest(body: &[u8]) -> Result<Manifest> {
@@ -430,18 +511,18 @@ pub(crate) fn pull_conflict(local_sha: &str, last_pulled: &str, remote_sha: &str
     local_sha != last_pulled && remote_sha != local_sha
 }
 
-fn is_fork(local_sha: &str, remote_sha: &str, last_pulled: &str) -> bool {
+pub(crate) fn is_fork(local_sha: &str, remote_sha: &str, last_pulled: &str) -> bool {
     !remote_sha.is_empty()
         && local_sha != remote_sha
         && local_sha != last_pulled
         && remote_sha != last_pulled
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 
-fn local_store_bytes(paths: &Paths) -> Result<Vec<u8>> {
+pub(crate) fn local_store_bytes(paths: &Paths) -> Result<Vec<u8>> {
     let file = paths.store_file();
     if file.exists() {
         fs::read(&file).map_err(|e| Error::io(&file, e).into())
@@ -473,7 +554,7 @@ fn device_name() -> String {
         .unwrap_or_else(|| "unknown".into())
 }
 
-fn now_local() -> String {
+pub(crate) fn now_local() -> String {
     chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false)
 }
 
