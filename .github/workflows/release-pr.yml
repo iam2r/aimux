@@ -1,20 +1,25 @@
-name: Release PR
+name: Release
 
 # Changesets-driven releases (no conventional-commit parsing):
 #   daily development happens on `develop` (all PRs target it; contributors do
 #     NOT add change files — maintainers decide if/when to release)
 #   maintainer pushes .changeset/*.md to `develop` to cut a release
-#     → Knope consumes them on the `release` branch (Cargo.toml/Cargo.lock bump,
-#       CHANGELOG.md entry, change files deleted) and force-pushes it
-#     → opens/updates the Release PR (develop → main) and auto-merges it
-#     → tags `apmux/vX.Y.Z` at the merge commit and builds binaries via release.yml
-#     → back-merges main into develop so the bump + CHANGELOG sync back
+#     → on push to develop: Knope consumes the change files on the `release`
+#       branch (Cargo.toml/Cargo.lock bump, CHANGELOG.md entry, change files
+#       deleted) and force-pushes it, then opens/updates the Release PR
+#       (release → main) for the maintainer to merge
+#   maintainer manually merges the Release PR
+#     → on push to main: this workflow tags the merge commit, back-merges
+#       main into develop, and pushing the tag fires `release.yml` (which
+#       listens on `push: tags: 'v*'`) to build installers and publish the
+#       GitHub Release
 #
 # `main` is release-only: never push features there. Hotfixes also go through
 # `develop` (push it with a change file for the fastest path to a release).
 #
-# GITHUB_TOKEN cannot start a second workflow, so tagging + the binary build
-# must happen inside this same run (do not wait for the merge push).
+# Auto-merge was removed: GITHUB_TOKEN merges do not start a fresh workflow
+# and the "wait for merge_commit" loop was unreliable. Manual merge plus the
+# push-to-main trigger is simpler and easier to reason about.
 #
 # Repo setting: Actions → General → Workflow permissions →
 # "Allow GitHub Actions to create and approve pull requests".
@@ -26,7 +31,7 @@ on:
       - develop
 
 concurrency:
-  group: release-pr-${{ github.ref }}
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 permissions:
@@ -35,10 +40,9 @@ permissions:
 
 jobs:
   prepare-release:
-    name: Prepare & auto-merge
+    name: Prepare & upsert Release PR
+    if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
-    outputs:
-      merge_sha: ${{ steps.merge.outputs.merge_sha }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -76,7 +80,9 @@ jobs:
           TAG="apmux/v${VERSION}"
           echo "version=${VERSION} tag=${TAG}"
           {
-            echo "This PR was created by the release pipeline. Merging it will tag \`${TAG}\` and build installers."
+            echo "This PR was created by the release pipeline. After you merge it,"
+            echo "the push to \`main\` tags \`${TAG}\`, back-merges into develop,"
+            echo "and builds installers via \`release.yml\`."
             echo
             echo "## ${VERSION}"
             echo
@@ -88,60 +94,17 @@ jobs:
             gh pr create --head release --base main \
               --title "Release v${VERSION}" --body-file body.md
           fi
-      - name: Auto-merge Release PR
-        id: merge
-        if: steps.gate.outputs.run == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          echo "merge_sha=" >> "$GITHUB_OUTPUT"
-          PR=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open \
-            --json number,headRefName \
-            --jq '[.[] | select(.headRefName == "release")][0].number // empty')
-          if [ -z "$PR" ]; then
-            echo "No open Release PR — nothing to merge."
-            exit 0
-          fi
-          for i in $(seq 1 30); do
-            MERGEABLE=$(gh pr view "$PR" --json mergeable --jq '.mergeable')
-            echo "[$i] PR #$PR mergeable=$MERGEABLE"
-            if [ "$MERGEABLE" = "MERGEABLE" ]; then
-              gh pr merge "$PR" --merge --delete-branch=false
-              echo "Merged Release PR #$PR."
-              for j in $(seq 1 15); do
-                SHA=$(gh pr view "$PR" --json mergeCommit --jq '.mergeCommit.oid // empty')
-                if [ -n "$SHA" ]; then
-                  echo "merge_sha=$SHA" >> "$GITHUB_OUTPUT"
-                  echo "merge commit $SHA"
-                  exit 0
-                fi
-                sleep 2
-              done
-              echo "Merged but merge commit SHA not visible yet."
-              exit 0
-            fi
-            sleep 20
-          done
-          echo "Timed out waiting for mergeability — leaving PR for manual merge."
 
-  tag-and-binaries:
-    name: Tag release
-    needs: prepare-release
-    if: needs.prepare-release.outputs.merge_sha != ''
+  tag-and-sync:
+    name: Tag release & back-merge develop
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    outputs:
-      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-          fetch-tags: true
-          # GITHUB_TOKEN merges do not start a second workflow, so origin/main can
-          # still look pre-merge for a while — pin to the merge commit explicitly.
-          ref: ${{ needs.prepare-release.outputs.merge_sha }}
-      - name: Tag Cargo.toml version if missing
-        id: tag
+          ref: ${{ github.sha }}
+      - name: Ensure release tag exists for the merged version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -154,10 +117,9 @@ jobs:
           TAG="apmux/v${VERSION}"
           SHA="$(git rev-parse HEAD)"
           echo "version=${VERSION} tag=${TAG} sha=${SHA}"
-          if git rev-parse "refs/tags/${TAG}" >/dev/null 2>&1 \
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1 \
             || gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
-            echo "Tag ${TAG} already exists — skip binaries."
-            echo "tag=" >> "$GITHUB_OUTPUT"
+            echo "Tag ${TAG} already exists — skipping."
             exit 0
           fi
           git config user.name "github-actions[bot]"
@@ -168,36 +130,20 @@ jobs:
               -f ref="refs/tags/${TAG}" \
               -f sha="${SHA}"
           fi
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "created ${TAG} at ${SHA}"
-
-  binaries:
-    name: Binaries
-    needs: tag-and-binaries
-    if: needs.tag-and-binaries.outputs.tag != ''
-    permissions:
-      contents: write
-    uses: ./.github/workflows/release.yml
-    with:
-      tag: ${{ needs.tag-and-binaries.outputs.tag }}
-
-  sync-develop:
-    name: Back-merge main into develop
-    needs: prepare-release
-    if: needs.prepare-release.outputs.merge_sha != ''
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: develop
-          fetch-depth: 0
+          echo "created ${TAG} at ${SHA} — release.yml will build the binaries"
       - name: Merge main back into develop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
+          # bring the version bump + CHANGELOG from the merged Release PR back
+          # into develop; conflict is essentially impossible (only the bot
+          # writes Cargo.toml/CHANGELOG), but fail loudly rather than diverge
+          # silently.
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # brings the version bump + CHANGELOG from the merged Release PR back
-          # into develop; conflict is essentially impossible (only the bot writes
-          # Cargo.toml/CHANGELOG), but fail loudly rather than diverge silently.
+          git fetch origin develop
+          git checkout -B develop origin/develop
           git merge --no-edit origin/main || {
             echo "::error::Merging main into develop conflicted — resolve manually and push."
             exit 1
