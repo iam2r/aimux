@@ -1,8 +1,10 @@
 name: Release
 
-# Binary build + GitHub Release assets. Called from release-plz in the same
-# run (GITHUB_TOKEN cannot start a second workflow). Also runs on a human
-# `git push` of a v* tag, and on workflow_dispatch.
+# Binary build + GitHub Release assets. Triggered by the `tag-and-sync` job
+# in release-pr.yml pushing `apmux/vX.Y.Z` (the `push: tags: 'apmux/v*'`
+# listener fires here). It can also be re-run manually via workflow_dispatch
+# to rebuild assets for an existing tag (e.g. when the workflow file itself
+# changes and you want fresh binaries without bumping the version).
 on:
   workflow_call:
     inputs:
@@ -18,7 +20,7 @@ on:
         type: string
   push:
     tags:
-      - "v*"
+      - "apmux/v*"
 
 permissions:
   contents: write
