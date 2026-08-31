@@ -1,4 +1,4 @@
-name: Release
+name: Release build
 
 # Binary build + GitHub Release assets. Triggered by the `publish-release`
 # job in release.yml pushing `apmux/vX.Y.Z` (the `push: tags: 'apmux/v*'`
