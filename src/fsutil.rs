@@ -23,7 +23,6 @@ pub(crate) fn panic_if_host_config_path(path: &Path) {
     };
     let dirs = [
         home.join(".apmux"),
-        home.join(".aimux"), // pre-rename dir must stay protected too
         home.join(".claude"),
         home.join(".codex"),
         home.join(".config").join("opencode"),

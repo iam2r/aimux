@@ -8,8 +8,11 @@ INSTALL_DIR="${APMUX_INSTALL_DIR:-$HOME/.local/bin}"
 TARGET="${INSTALL_DIR}/${BIN_NAME}"
 RELEASES_URL="https://github.com/${REPO}/releases"
 SKIP_PATH="${APMUX_SKIP_PATH:-0}"
-VERSION="${1:-latest}"
-[[ "${VERSION}" == "latest" || "${VERSION}" =~ ^v ]] || VERSION="v${VERSION}"
+VERSION_RAW="${1:-latest}"
+case "${VERSION_RAW}" in
+  latest | v* | aimux/* | apmux/*) ;;
+  *) VERSION_RAW="v${VERSION_RAW}" ;;
+esac
 
 TMP_DIR=""
 ASSET_NAME=""
@@ -36,6 +39,35 @@ need_cmd() {
     exit 1
   fi
 }
+
+# Accept a bare version like `v0.1.20` (or `0.1.20`) and route it to the
+# actual release tag `apmux/vX.Y.Z`. No tag-prefix knowledge is required
+# from the caller.
+resolve_target_tag() {
+  case "${VERSION_RAW}" in
+    latest)
+      VERSION="latest"
+      ;;
+    v*)
+      VERSION="apmux/${VERSION_RAW}"
+      ;;
+    aimux/*)
+      warn "Version ${VERSION_RAW} is a pre-rename release (tag prefix 'aimux/')."
+      warn "Falling back to the latest apmux release."
+      VERSION="latest"
+      ;;
+    *)
+      err "Unrecognised version spec: ${VERSION_RAW}"
+      err "Use 'latest' or a bare version like 'v0.1.20'."
+      exit 1
+      ;;
+  esac
+}
+resolve_target_tag
+# VERSION is the URL fragment download() uses. For "latest" the
+# releases/latest redirect resolves it; for explicit versions it is the
+# full `apmux/vX.Y.Z` tag.
+readonly VERSION
 
 detect_asset() {
   local os arch
@@ -89,15 +121,21 @@ download_asset() {
 
 download() {
   local url dest
+  dest="${TMP_DIR}/${ASSET_NAME}"
   if [[ "${VERSION}" == "latest" ]]; then
     url="${RELEASES_URL}/latest/download/${ASSET_NAME}"
+    info "Downloading ${ASSET_NAME}"
+    download_asset "${url}" "${dest}" && return 0
   else
     url="${RELEASES_URL}/download/${VERSION}/${ASSET_NAME}"
-  fi
-  dest="${TMP_DIR}/${ASSET_NAME}"
-  info "Downloading ${ASSET_NAME}"
-  if download_asset "${url}" "${dest}"; then
-    return 0
+    info "Downloading ${ASSET_NAME}"
+    if download_asset "${url}" "${dest}"; then
+      return 0
+    fi
+    rm -f "${dest}"
+    warn "Version ${VERSION} not found; falling back to the latest release."
+    url="${RELEASES_URL}/latest/download/${ASSET_NAME}"
+    download_asset "${url}" "${dest}" && return 0
   fi
   rm -f "${dest}"
   err "Unable to download ${url}"
@@ -166,12 +204,7 @@ ensure_path() {
   cmd="$(rc_for_shell | sed -n '2p')"
   mkdir -p "$(dirname "${rc}")"
   touch "${rc}"
-  if grep -Fqs "# aimux PATH" "${rc}"; then
-    # In-place upgrade of the pre-rename managed block marker so old installs
-    # don't accumulate a second block.
-    sed -i "s/# aimux PATH/# apmux PATH/g; s/# end aimux PATH/# end apmux PATH/g" "${rc}"
-    info "${INSTALL_DIR} is not in this shell's PATH; upgraded the managed block in ${rc}"
-  elif grep -Fqs "# apmux PATH" "${rc}"; then
+  if grep -Fqs "# apmux PATH" "${rc}"; then
     info "${INSTALL_DIR} is not in this shell's PATH; a managed block already exists in ${rc}"
   else
     {

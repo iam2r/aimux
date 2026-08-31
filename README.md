@@ -25,7 +25,7 @@ The Unix installer puts `apmux` in `~/.local/bin` (override with `APMUX_INSTALL_
 ```bash
 # specific version
 curl -fsSL https://github.com/iam2r/apmux/releases/latest/download/install.sh | bash -s -- v0.1.0
-AIMUX_SKIP_PATH=1 bash install.sh   # install only; do not edit shell rc
+APMUX_SKIP_PATH=1 bash install.sh   # install only; do not edit shell rc
 ```
 
 ### Releases
@@ -102,7 +102,7 @@ apmux update --check [--json]
 
 `<app>`: `claude` / `codex` / `opencode` / `pi`. Exit codes: `0` success, `1` user/validation error, `2` I/O or network.
 
-`list` / `current` mask API keys by default (first 4 + `…` + last 4; shorter than 8 → all `*`). `--json` is also masked. `AIMUX_SHOW_SECRETS=1` prints full keys — **dangerous**; they land in scrollback and CI logs. Local debugging only.
+`list` / `current` mask API keys by default (first 4 + `…` + last 4; shorter than 8 → all `*`). `--json` is also masked. `APMUX_SHOW_SECRETS=1` prints full keys — **dangerous**; they land in scrollback and CI logs. Local debugging only.
 
 The CLI is non-interactive (no prompts). Missing required flags exit non-zero. Use the TUI for interactive editing.
 
@@ -113,7 +113,7 @@ English is the default for the TUI, docs, and clap help.
 | Source | Effect |
 |--------|--------|
 | `--lang en` / `--lang zh` | Explicit (wins) |
-| `AIMUX_LANG` | Same values (`en`, `zh`, `zh_CN`, …) |
+| `APMUX_LANG` | Same values (`en`, `zh`, `zh_CN`, …) |
 | TUI Settings (`g`) | Saved in `settings.json` |
 | `LANG` / `LC_ALL` | `zh*` → Chinese TUI; anything else → English |
 
@@ -152,7 +152,7 @@ Backups: Enter restores (confirm), `b` snapshots now, Esc returns.
 
 Sync: `e` setup, `p` push, `u` pull. While a job runs, a static **Syncing…** overlay is shown (no spinner); keys other than `q` are ignored.
 
-Settings (`g`): Space/Enter changes the focused row. App detection defaults to **auto**: only a CLI found on `PATH` counts — leftover config folders do not count. Switch to **manual** to show/hide each app. Language is saved in `$AIMUX_CONFIG_DIR/settings.json`.
+Settings (`g`): Space/Enter changes the focused row. App detection defaults to **auto**: only a CLI found on `PATH` counts — leftover config folders do not count. Switch to **manual** to show/hide each app. Language is saved in `$APMUX_CONFIG_DIR/settings.json`.
 
 ## WebDAV
 
@@ -171,7 +171,7 @@ TUI: `s` → `e`, fill URL / user / password. Namespace is a separate read-only 
 
 `push` / `pull` take a timestamp backup before overwriting the store. On conflict, push is refused; `pull` or `--force`. `status` never prints the password.
 
-Credentials: `$AIMUX_CONFIG_DIR/webdav.json`, mode `0600`.
+Credentials: `$APMUX_CONFIG_DIR/webdav.json`, mode `0600`.
 
 ## Project `opencode.json` shadowing
 

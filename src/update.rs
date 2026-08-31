@@ -47,33 +47,36 @@ async fn run_async(version: Option<String>, check: bool, json: bool) -> Result<(
     let client = http_client()?;
     let release = fetch_target_release(&client, REPO_URL, version.as_deref()).await?;
     let target_tag = release.tag_name.clone();
-    // Tags are `apmux/vX.Y.Z` (or bare `vX.Y.Z`); keep only the semver part.
-    let target_version = semver_from_tag(&target_tag);
+    let target_version = release.version.clone();
 
-    if target_version == current_version {
+    if target_version.trim_start_matches('v') == current_version {
         println!("Already on latest version: {current_version}");
         return Ok(());
     }
 
-    if should_skip_implicit_downgrade(current_version, target_version, explicit) {
+    if should_skip_implicit_downgrade(
+        current_version,
+        target_version.trim_start_matches('v'),
+        explicit,
+    ) {
         println!(
-            "Current version {current_version} is newer than target {target_tag}; skipping automatic downgrade. Use `{BINARY_NAME} update --version {target_tag}` to force."
+            "Current version {current_version} is newer than target {target_version}; skipping automatic downgrade. Use `{BINARY_NAME} update --version {target_version}` to force."
         );
         return Ok(());
     }
 
     if homebrew {
         println!(
-            "Update {target_tag} is available (current {current_version}).\nPlease update with: brew upgrade apmux"
+            "Update {target_version} is available (current {current_version}).\nPlease update: brew upgrade apmux"
         );
         return Ok(());
     }
 
     println!("Current version: {current_version}");
-    println!("Updating to: {target_tag}");
+    println!("Updating to: {target_version}");
 
     let expected = current_asset_candidates()?;
-    let asset = match select_release_asset(&release.assets, &target_tag, &expected) {
+    let asset = match select_release_asset(&release.assets, &target_version, &expected) {
         Some(a) => AssetDownload {
             name: a.name.clone(),
             url: a.browser_download_url.clone(),
@@ -84,7 +87,7 @@ async fn run_async(version: Option<String>, check: bool, json: bool) -> Result<(
             // asset name variants (bare and versioned).
             let variants: Vec<String> = expected
                 .iter()
-                .flat_map(|name| release_asset_names(&target_tag, name))
+                .flat_map(|name| release_asset_names(&target_version, name))
                 .collect();
             let mut chosen = None;
             for name in &variants {
@@ -101,10 +104,10 @@ async fn run_async(version: Option<String>, check: bool, json: bool) -> Result<(
                     }
                 }
             }
-            chosen.ok_or_else(|| anyhow!("no downloadable asset found for {target_tag}"))?
+            chosen.ok_or_else(|| anyhow!("no downloadable asset found for {target_version}"))?
         }
         None => bail!(
-            "Release {target_tag} does not include any expected assets {expected:?} (or tagged variants)."
+            "Release {target_version} does not include any expected assets {expected:?} (or tagged variants)."
         ),
     };
 
@@ -122,7 +125,7 @@ async fn run_async(version: Option<String>, check: bool, json: bool) -> Result<(
     let extracted = extract_binary(&downloaded.path)?;
     replace_current_binary(&extracted)?;
 
-    println!("Updated successfully to {target_tag}");
+    println!("Updated successfully to {target_version}");
     println!(
         "Run `{} --version` to verify the installed version.",
         BINARY_NAME
@@ -145,17 +148,17 @@ async fn check_only(json: bool) -> Result<()> {
     } else if info.is_homebrew_managed {
         println!(
             "Update {} is available (current {}).\nPlease update with: brew upgrade apmux",
-            info.target_tag, info.current_version
+            info.target_version, info.current_version
         );
     } else if info.is_downgrade {
         println!(
             "Current version {} is newer than target {}; skipping automatic downgrade. Use `{} update --version {}` to force.",
-            info.current_version, info.target_tag, BINARY_NAME, info.target_tag
+            info.current_version, info.target_version, BINARY_NAME, info.target_version
         );
     } else {
         println!(
             "Update {} is available (current {}).",
-            info.target_tag, info.current_version
+            info.target_version, info.current_version
         );
         println!("Run `{} update` to download and apply it.", BINARY_NAME);
     }
@@ -166,7 +169,8 @@ async fn check_only(json: bool) -> Result<()> {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct UpdateCheckInfo {
     pub current_version: String,
-    pub target_tag: String,
+    /// User-facing semver (`vX.Y.Z`).
+    pub target_version: String,
     pub is_already_latest: bool,
     pub is_downgrade: bool,
     pub is_homebrew_managed: bool,
@@ -177,23 +181,23 @@ async fn check_for_update(repo_url: &str) -> Result<UpdateCheckInfo> {
     let release = fetch_target_release(&client, repo_url, None).await?;
     Ok(build_update_check_info(
         env!("CARGO_PKG_VERSION"),
-        release.tag_name,
+        release.version,
         is_homebrew_install(),
     ))
 }
 
 fn build_update_check_info(
     current_version: &str,
-    target_tag: String,
+    target_version: String,
     is_homebrew_managed: bool,
 ) -> UpdateCheckInfo {
-    let target_version = semver_from_tag(&target_tag).to_string();
+    let bare = target_version.trim_start_matches('v').to_string();
     UpdateCheckInfo {
         current_version: current_version.to_string(),
-        is_already_latest: target_version == current_version,
-        is_downgrade: should_skip_implicit_downgrade(current_version, &target_version, false),
+        is_already_latest: bare == current_version,
+        is_downgrade: should_skip_implicit_downgrade(current_version, &bare, false),
         is_homebrew_managed,
-        target_tag,
+        target_version,
     }
 }
 
@@ -262,47 +266,91 @@ async fn fetch_target_release(
 ) -> Result<ResolvedRelease> {
     match version.map(str::trim).filter(|v| !v.is_empty()) {
         Some(version) => {
-            let tag = normalize_tag(version);
-            validate_target_tag(&tag)?;
-            Ok(fetch_assets_best_effort(client, repo_url, &tag).await)
-        }
-        None => {
-            // The releases-page redirect is not rate limited (the REST API
-            // is, at 60 req/h anonymous), so resolve the latest tag from it
-            // first and only fall back to the API if that fails.
-            match fetch_latest_tag_from_release_page(client, repo_url).await {
-                Ok(tag) => Ok(fetch_assets_best_effort(client, repo_url, &tag).await),
-                Err(_) => fetch_latest_release(client, repo_url)
-                    .await
-                    .map(ResolvedRelease::from),
+            let version = normalize_tag(version);
+            validate_target_tag(&version)?;
+            let actual = release_tag_for(&version);
+            if release_tag_exists(client, repo_url, &actual).await {
+                Ok(fetch_assets_best_effort(client, repo_url, &actual, &version).await)
+            } else {
+                // Pre-rename or unpublished version — fall back to latest
+                // instead of failing a well-formed request.
+                println!("Version {version} not found; falling back to the latest release.");
+                resolve_latest_release(client, repo_url).await
             }
         }
+        None => resolve_latest_release(client, repo_url).await,
+    }
+}
+
+/// The releases-page redirect is not rate limited (the REST API is, at
+/// 60 req/h anonymous), so resolve the latest tag from it first and only
+/// fall back to the API if that fails.
+async fn resolve_latest_release(client: &Client, repo_url: &str) -> Result<ResolvedRelease> {
+    match fetch_latest_tag_from_release_page(client, repo_url).await {
+        Ok(actual) => {
+            let version = format!("v{}", semver_from_tag(&actual));
+            Ok(fetch_assets_best_effort(client, repo_url, &actual, &version).await)
+        }
+        Err(_) => fetch_latest_release(client, repo_url)
+            .await
+            .map(ResolvedRelease::from),
+    }
+}
+
+/// Cheap existence probe for a release tag via the github.com release page
+/// (not API rate limited). `false` only on an explicit HTTP 404; network
+/// errors count as "exists" so genuine failures still surface later with
+/// proper context.
+async fn release_tag_exists(client: &Client, repo_url: &str, tag: &str) -> bool {
+    let Ok(url) = release_page_url(repo_url, &format!("tag/{tag}")) else {
+        return true;
+    };
+    match client.get(url).send().await {
+        Ok(resp) => resp.status() != StatusCode::NOT_FOUND,
+        Err(_) => true,
     }
 }
 
 /// Tag resolved without necessarily touching the REST API; assets may be
 /// empty when the API is rate limited, in which case downloads go through
 /// direct release URLs.
+///
+/// `tag_name` is the actual Git release tag (`apmux/vX.Y.Z`); `version` is
+/// the user-facing semver (`vX.Y.Z`) for display and asset-name matching.
 #[derive(Debug, Clone)]
 struct ResolvedRelease {
     tag_name: String,
+    version: String,
     assets: Vec<ReleaseAsset>,
 }
 
 impl From<ReleaseInfo> for ResolvedRelease {
     fn from(info: ReleaseInfo) -> Self {
+        let version = format!("v{}", semver_from_tag(&info.tag_name));
         Self {
             tag_name: info.tag_name,
+            version,
             assets: info.assets,
         }
     }
 }
 
-/// Fetch the asset list for a known tag. A rate-limited or failed API call
-/// degrades to an empty asset list instead of failing the whole update.
-async fn fetch_assets_best_effort(client: &Client, repo_url: &str, tag: &str) -> ResolvedRelease {
+/// Fetch the asset list for a known actual release tag (`apmux/vX.Y.Z`).
+/// `user_version` is the user-facing `vX.Y.Z` carried along for asset-name
+/// matching (some legacy assets embed the version, e.g.
+/// `apmux-0.1.20-linux-…`).
+///
+/// A rate-limited or failed API call degrades to an empty asset list instead
+/// of failing the whole update.
+async fn fetch_assets_best_effort(
+    client: &Client,
+    repo_url: &str,
+    tag: &str,
+    user_version: &str,
+) -> ResolvedRelease {
     let fallback = || ResolvedRelease {
         tag_name: tag.into(),
+        version: user_version.into(),
         assets: Vec::new(),
     };
     let Ok(url) = release_api_url(repo_url, &format!("tags/{tag}")) else {
@@ -449,42 +497,47 @@ fn extract_release_tag_from_url(url: &Url) -> Option<String> {
     Some(rest.join("/"))
 }
 
-/// Accepts `apmux/vX.Y.Z`, `aimux/vX.Y.Z` (pre-rename), `vX.Y.Z`, or
-/// `X.Y.Z` and returns the canonical release tag with the crate prefix
-/// attached (`apmux/vX.Y.Z`).
+/// Accepts `vX.Y.Z` (the user-facing form), or the bare `X.Y.Z`. Returns the
+/// canonical `vX.Y.Z`. The crate-name prefix (`apmux/`) used for the actual
+/// Git tag is added by [`release_tag_for`] when querying the API, so callers
+/// do not need to know about it.
 fn normalize_tag(version: &str) -> String {
     let v = version.trim();
-    let prefix = format!("{CRATE_NAME}/");
-    let rest = v
-        .strip_prefix(&prefix)
-        .or_else(|| v.strip_prefix("aimux/"))
-        .unwrap_or(v);
-    if rest.starts_with('v') {
-        format!("{prefix}{rest}")
+    if v.starts_with('v') {
+        v.to_string()
     } else {
-        format!("{prefix}v{rest}")
+        format!("v{v}")
     }
 }
 
-/// Tags are `apmux/vX.Y.Z`, or legacy `aimux/vX.Y.Z`; only the leading crate
-/// prefix (current or pre-rename) is allowed.
+/// Returns the actual Git release tag for a normalized `vX.Y.Z` by adding the
+/// crate-name prefix.
+fn release_tag_for(version: &str) -> String {
+    debug_assert!(
+        version.starts_with('v'),
+        "normalized tag should start with v"
+    );
+    format!("{CRATE_NAME}/{version}")
+}
+
+/// Validates a normalized user-facing tag: `vX.Y.Z`. Slashes are rejected
+/// because the public form is bare; a remaining slash means the input was
+/// malformed.
 fn validate_target_tag(tag: &str) -> Result<()> {
-    let prefix = format!("{CRATE_NAME}/");
-    let legacy_prefix = "aimux/";
-    if !tag.starts_with(&prefix) && !tag.starts_with(legacy_prefix) {
-        bail!("Invalid version tag '{tag}': must be '{prefix}<version>' or 'aimux/v<version>'.");
+    if !tag.starts_with('v') {
+        bail!("Invalid version tag '{tag}': must be 'v<version>' (e.g. 'v0.1.20').");
     }
     if tag.len() > 64 {
         bail!("Invalid version tag '{tag}': too long.");
     }
-    if tag.contains('\\') || tag.contains("..") || tag.matches('/').count() > 1 {
+    if tag.contains('\\') || tag.contains("..") || tag.contains('/') {
         bail!("Invalid version tag '{tag}': contains forbidden path characters.");
     }
     if !tag
         .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || ch == '.' || ch == '-' || ch == '_' || ch == '/')
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '.' || ch == '-' || ch == '_')
     {
-        bail!("Invalid version tag '{tag}': only [A-Za-z0-9._-/] allowed.");
+        bail!("Invalid version tag '{tag}': only [A-Za-z0-9._-] allowed.");
     }
     Ok(())
 }
@@ -814,14 +867,10 @@ fn should_skip_implicit_downgrade(
     }
 }
 
-/// Strip an optional package prefix and `v` from a release tag:
-/// `apmux/v0.1.1`, `aimux/v0.1.1` (pre-rename tags), and `v0.1.1` all yield
-/// `0.1.1`. Both prefixes are accepted so installs that upgraded across the
-/// rename can still parse old release tags.
+/// Strip the package prefix and `v` from a release tag: `apmux/v0.1.1` and
+/// `v0.1.1` both yield `0.1.1`.
 fn semver_from_tag(tag: &str) -> &str {
-    tag.trim_start_matches("apmux/")
-        .trim_start_matches("aimux/")
-        .trim_start_matches('v')
+    tag.trim_start_matches("apmux/").trim_start_matches('v')
 }
 
 fn parse_version_nums(s: &str) -> Option<(u64, u64, u64)> {
@@ -840,21 +889,18 @@ mod tests {
 
     #[test]
     fn normalize_and_validate_tags() {
-        // Bare semver, v-prefixed, and full-tag forms all normalize to the
-        // canonical `<crate>/vX.Y.Z`.
-        assert_eq!(normalize_tag("0.2.0"), "apmux/v0.2.0");
-        assert_eq!(normalize_tag("v0.2.0"), "apmux/v0.2.0");
-        assert_eq!(normalize_tag("apmux/v0.2.0"), "apmux/v0.2.0");
-        assert_eq!(normalize_tag("aimux/v0.2.0"), "apmux/v0.2.0"); // pre-rename input
-        validate_target_tag("apmux/v0.2.0").unwrap();
-        validate_target_tag("apmux/v1.0.0-rc.1").unwrap();
-        assert!(validate_target_tag("v0.2.0").is_err());
+        // User-facing form is `vX.Y.Z`; a bare `X.Y.Z` is also accepted.
+        assert_eq!(normalize_tag("0.2.0"), "v0.2.0");
+        assert_eq!(normalize_tag("v0.2.0"), "v0.2.0");
+        assert_eq!(release_tag_for("v0.2.0"), "apmux/v0.2.0");
+        validate_target_tag("v0.2.0").unwrap();
+        validate_target_tag("v1.0.0-rc.1").unwrap();
+        assert!(validate_target_tag("apmux/v0.2.0").is_err());
         assert!(validate_target_tag("0.2.0").is_err());
-        assert!(validate_target_tag("apmux/v../etc").is_err());
-        assert!(validate_target_tag("apmux/vfoo/bar").is_err());
+        assert!(validate_target_tag("v../etc").is_err());
+        assert!(validate_target_tag("vfoo/bar").is_err());
         assert!(validate_target_tag("other/v0.2.0").is_err());
-        // Legacy pre-rename tags stay parseable for semver/version checks.
-        assert_eq!(semver_from_tag("aimux/v0.1.18"), "0.1.18");
+        assert_eq!(semver_from_tag("v0.1.18"), "0.1.18");
         assert_eq!(semver_from_tag("apmux/v0.1.18"), "0.1.18");
     }
 
@@ -893,13 +939,15 @@ mod tests {
             },
         ];
         let expected = vec!["apmux-linux-x64-musl.tar.gz".to_string()];
-        // Full tag form reduces to the bare version in asset names.
-        let selected = select_release_asset(&assets, "aimux/v0.2.0", &expected).unwrap();
+        // User-facing `v0.2.0` reduces to the bare version in asset names.
+        let selected = select_release_asset(&assets, "v0.2.0", &expected).unwrap();
         assert_eq!(selected.name, "apmux-0.2.0-linux-x64-musl.tar.gz");
     }
 
     #[test]
     fn prefers_untagged_asset_name() {
+        // Both the untagged (preferred, simpler) and versioned apmux- forms
+        // are published; the untagged one wins for install simplicity.
         let assets = vec![
             ReleaseAsset {
                 name: "apmux-linux-x64-musl.tar.gz".into(),
@@ -907,7 +955,7 @@ mod tests {
                 digest: None,
             },
             ReleaseAsset {
-                name: "aimux-v0.2.0-linux-x64-musl.tar.gz".into(),
+                name: "apmux-0.2.0-linux-x64-musl.tar.gz".into(),
                 browser_download_url: "https://example.invalid/b".into(),
                 digest: None,
             },
@@ -949,7 +997,7 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb *checksums.txt\
         let info = build_update_check_info("1.2.3", "v1.2.4".into(), false);
         let value = serde_json::to_value(&info).unwrap();
         assert_eq!(value["currentVersion"], "1.2.3");
-        assert_eq!(value["targetTag"], "v1.2.4");
+        assert_eq!(value["targetVersion"], "v1.2.4");
         assert_eq!(value["isAlreadyLatest"], false);
         assert_eq!(value["isDowngrade"], false);
         assert_eq!(value["isHomebrewManaged"], false);

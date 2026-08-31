@@ -51,7 +51,6 @@ jobs:
 
   unix:
     name: fmt+clippy+test (linux)
-    needs: gate
     if: github.base_ref == 'develop'
     runs-on: ubuntu-latest
     steps:
@@ -68,7 +67,6 @@ jobs:
 
   windows:
     name: test (windows)
-    needs: gate
     if: github.base_ref == 'develop'
     runs-on: windows-latest
     steps:

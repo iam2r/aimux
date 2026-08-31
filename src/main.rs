@@ -37,7 +37,7 @@ struct Cli {
     #[arg(short = 'V', long = "version", action = clap::ArgAction::SetTrue)]
     print_version: bool,
 
-    /// UI language: en or zh (default: English; also APMUX_LANG / legacy AIMUX_LANG / LANG)
+    /// UI language: en or zh (default: English; also APMUX_LANG / LANG)
     #[arg(long, global = true, env = crate::name::ENV_LANG)]
     lang: Option<String>,
 
@@ -236,10 +236,8 @@ fn main() {
             std::process::exit(if e.use_stderr() { 1 } else { 0 });
         }
     };
-    // Legacy env-var compatibility: prefer `APMUX_*`, fall back to the
-    // pre-rename `AIMUX_*` so existing shells keep working.
     if cli.lang.is_none() {
-        cli.lang = crate::name::read_env(crate::name::ENV_LANG, crate::name::LEGACY_ENV_LANG);
+        cli.lang = crate::name::read_env(crate::name::ENV_LANG);
     }
     if cli.print_version {
         println!("{}", env!("CARGO_PKG_VERSION"));
@@ -258,11 +256,6 @@ fn init_cli_logger() {
 }
 
 fn run(cli: Cli) -> Result<()> {
-    // One-time local config-dir migration (~/.apmux → ~/.apmux); best-effort
-    // and idempotent.
-    if let Err(e) = Paths::migrate_legacy_dir() {
-        log::warn!("config dir migration skipped: {e:#}");
-    }
     match cli.command {
         None => {
             let paths = Paths::from_env()?;

@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## 0.1.21 (2026-08-31)
+
+### Fixes
+
+- Self-update and the installers now take a bare version like `v0.1.20` (or `0.1.20`); the internal `apmux/` tag prefix is applied when querying GitHub. A version that no longer exists (e.g. a pre-rename `v0.1.18`, or `aimux/vX.Y.Z` passed to install.sh/install.ps1) no longer errors: both the CLI and the install scripts print a note and fall back to the latest release instead, so any well-formed version spec installs something. `update --check --json` reports the new `targetVersion` field (user-facing `vX.Y.Z`).
+- Drop all aimux migration/compatibility code: the one-time `~/.aimux` → `~/.apmux` config-dir migration, the `aimux-sync` → `apmux-sync` WebDAV namespace migration, `AIMUX_*` env-var fallbacks, and the `aimux-*` release-asset aliases are all removed. Existing users have already migrated; pre-rename data is only mentioned in the CHANGELOG now. CI's PR policy gate no longer blocks the test jobs — fmt/clippy/tests always run on every PR regardless of the gate outcome.
+
 ## 0.1.20 (2026-08-31)
 
 ### Fixes

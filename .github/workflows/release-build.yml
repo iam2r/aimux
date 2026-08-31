@@ -185,29 +185,6 @@ jobs:
             local src="$2"
             if [ -f "$src" ]; then
               tar -cf - -C "$(dirname "$src")" "$(basename "$src")" | gzip -9 > "release-assets/${name}.tar.gz"
-              # Legacy alias with version in the name (for old release tooling).
-              cp "release-assets/${name}.tar.gz" "release-assets/${name//apmux/aimux}-${VERSION}-${name#apmux-}.tar.gz"
-            fi
-          }
-
-          # Legacy alias: pre-rename `aimux` self-update reads `aimux-<platform>.tar.gz`
-          # and expects the entry to be named `aimux`. Repack with both names inside
-          # so old binaries find `aimux` and new ones find `apmux`.
-          repack_legacy() {
-            local apmux_tar="$1"
-            local platform="$2"
-            local legacy_tar="release-assets/aimux-${platform}.tar.gz"
-            if [ -f "$apmux_tar" ]; then
-              local tmp
-              tmp="$(mktemp -d)"
-              tar -xzf "$apmux_tar" -C "$tmp"
-              if [ -f "${tmp}/apmux" ]; then
-                cp "${tmp}/apmux" "${tmp}/aimux"
-              elif [ -f "${tmp}/apmux.exe" ]; then
-                cp "${tmp}/apmux.exe" "${tmp}/aimux.exe"
-              fi
-              tar -czf "$legacy_tar" -C "$tmp" .
-              rm -rf "$tmp"
             fi
           }
 
@@ -219,25 +196,7 @@ jobs:
 
           if [ -f artifacts/apmux-windows-x64/apmux.exe ]; then
             (cd artifacts/apmux-windows-x64 && zip -9 "../../release-assets/apmux-windows-x64.zip" apmux.exe)
-            cp release-assets/apmux-windows-x64.zip "release-assets/aimux-${VERSION}-windows-x64.zip"
-            # Legacy alias: pre-rename binaries request `aimux-windows-x64.zip`.
-            # The zip already contains apmux.exe; add an aimux.exe entry so old
-            # self-update finds what it expects.
-            if command -v zip >/dev/null 2>&1; then
-              cp artifacts/apmux-windows-x64/apmux.exe "$RUNNER_TEMP/aimux.exe"
-              (cd "$RUNNER_TEMP" && zip -9 "$GITHUB_WORKSPACE/release-assets/aimux-windows-x64.zip" aimux.exe)
-            fi
           fi
-
-          # Legacy aliases: pre-rename binaries request `aimux-<platform>` names.
-          # Repack with both `aimux` and `apmux` entries so the old self-update
-          # finds what it expects without breaking the new layout.
-          for a in release-assets/apmux-*.tar.gz; do
-            base="${a##*/}"
-            platform="${base#apmux-}"
-            platform="${platform%.tar.gz}"
-            repack_legacy "$a" "$platform"
-          done
 
           cp install.sh install.ps1 release-assets/
           chmod 755 release-assets/install.sh
