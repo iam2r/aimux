@@ -1,8 +1,6 @@
 use std::env;
 use std::fs;
-#[cfg(test)]
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Context, Result};
 
@@ -53,32 +51,93 @@ fn nonempty_var(name: &str) -> Option<String> {
     }
 }
 
+fn copy_missing_recursive(src: &Path, dst: &Path, copied: &mut usize) -> Result<()> {
+    for entry in fs::read_dir(src).with_context(|| format!("read_dir {}", src.display()))? {
+        let entry = entry.with_context(|| format!("read_dir entry in {}", src.display()))?;
+        let from = entry.path();
+        let to = dst.join(entry.file_name());
+        let ft = entry
+            .file_type()
+            .with_context(|| format!("file_type {}", from.display()))?;
+        if ft.is_dir() {
+            if !to.exists() {
+                fs::create_dir_all(&to)
+                    .with_context(|| format!("create_dir_all {}", to.display()))?;
+            }
+            copy_missing_recursive(&from, &to, copied)?;
+            continue;
+        }
+        if !ft.is_file() {
+            continue;
+        }
+        if to.exists() {
+            continue;
+        }
+        fs::copy(&from, &to)
+            .with_context(|| format!("copy legacy {} → {}", from.display(), to.display()))?;
+        *copied += 1;
+    }
+    Ok(())
+}
+
 impl Paths {
     /// One-time migration of the pre-rename config directory
     /// (`~/.aimux` → `~/.apmux`). Only the default location is migrated;
-    /// explicit `*_CONFIG_DIR` overrides are left untouched. In-place
-    /// `rename` is atomic on the same filesystem; on failure the tool keeps
-    /// working with the new (empty) directory and leaves the old one intact.
+    /// explicit `*_CONFIG_DIR` overrides are left untouched.
+    ///
+    /// Cases:
+    ///  - `old` absent → noop (clean install or already migrated)
+    ///  - `old` present, `new` absent → atomic rename
+    ///  - both present → merge: copy files from `old` into `new` only when
+    ///    `new` does not already have a same-named entry; print a warning so
+    ///    the user can clean up `old` by hand. We do not rename or delete
+    ///    `old` in this case because the new directory may already contain
+    ///    authoritative state (e.g. a fresh store written before the legacy
+    ///    webdav.json could be picked up — the bug this guard exists to fix).
     pub fn migrate_legacy_dir() -> Result<()> {
         let home = dirs::home_dir().ok_or_else(|| anyhow!("cannot determine home directory"))?;
         Self::migrate_legacy_dir_homed(&home)
     }
 
-    /// Testable core of [`Self::migrate_legacy_dir`]: move `{home}/.aimux`
-    /// into `{home}/{DOT_DIR}` when the latter does not exist yet.
+    /// Testable core of [`Self::migrate_legacy_dir`].
     pub fn migrate_legacy_dir_homed(home: &std::path::Path) -> Result<()> {
         let old = home.join(name::LEGACY_DOT_DIR);
         let new = home.join(name::DOT_DIR);
-        if new.exists() || !old.exists() {
+        if !old.exists() {
             return Ok(());
         }
-        fs::rename(&old, &new)
-            .with_context(|| format!("migrate config dir {} → {}", old.display(), new.display()))?;
-        println!(
-            "migrated config directory {} → {}",
-            old.display(),
-            new.display()
-        );
+        if !new.exists() {
+            fs::rename(&old, &new).with_context(|| {
+                format!("migrate config dir {} → {}", old.display(), new.display())
+            })?;
+            println!(
+                "migrated config directory {} → {}",
+                old.display(),
+                new.display()
+            );
+            return Ok(());
+        }
+        // Both exist: bring missing entries across and warn the user. We
+        // never overwrite an existing entry in `new` because the new
+        // directory may already hold authoritative state.
+        let mut copied = 0usize;
+        copy_missing_recursive(&old, &new, &mut copied)?;
+        if copied > 0 {
+            eprintln!(
+                "apmux: merged {copied} missing file(s) from legacy config dir {} into {}; \
+                 you can remove {} once you confirm everything looks right.",
+                old.display(),
+                new.display(),
+                old.display()
+            );
+        } else {
+            eprintln!(
+                "apmux: legacy config dir {} left in place — every entry it contains \
+                 already has a counterpart in {}. Remove it manually if it is no longer needed.",
+                old.display(),
+                new.display()
+            );
+        }
         Ok(())
     }
 
@@ -221,17 +280,47 @@ mod tests {
     }
 
     #[test]
-    fn migrate_is_noop_when_new_dir_exists() {
+    fn migrate_merges_missing_files_when_both_dirs_exist() {
         let td = tmp();
         let old = td.path().join(name::LEGACY_DOT_DIR);
         let new = td.path().join(name::DOT_DIR);
         fs::create_dir_all(&old).unwrap();
-        fs::write(old.join("sentinel"), "old").unwrap();
         fs::create_dir_all(&new).unwrap();
-        fs::write(new.join("sentinel"), "new").unwrap();
+        // common file already in new — must NOT be overwritten
+        fs::write(old.join("store.json"), "old store").unwrap();
+        fs::write(new.join("store.json"), "new store").unwrap();
+        // file only in old — must be copied across
+        fs::write(old.join("webdav.json"), "{\"url\":\"x\"}").unwrap();
+        // subdir only in old — must be copied across
+        fs::create_dir_all(old.join("backups")).unwrap();
+        fs::write(old.join("backups").join("b.json"), "{}").unwrap();
+        // file only in new — must stay
+        fs::write(new.join("settings.json"), "{\"lang\":\"en\"}").unwrap();
+
         Paths::migrate_legacy_dir_homed(td.path()).unwrap();
-        assert_eq!(fs::read_to_string(new.join("sentinel")).unwrap(), "new");
-        assert!(old.exists()); // untouched
+
+        // authoritative file preserved
+        assert_eq!(
+            fs::read_to_string(new.join("store.json")).unwrap(),
+            "new store"
+        );
+        // missing file copied
+        assert_eq!(
+            fs::read_to_string(new.join("webdav.json")).unwrap(),
+            "{\"url\":\"x\"}"
+        );
+        // nested file copied
+        assert_eq!(
+            fs::read_to_string(new.join("backups").join("b.json")).unwrap(),
+            "{}"
+        );
+        // new-only file untouched
+        assert_eq!(
+            fs::read_to_string(new.join("settings.json")).unwrap(),
+            "{\"lang\":\"en\"}"
+        );
+        // old dir left in place for user cleanup
+        assert!(old.exists());
     }
 
     #[test]
