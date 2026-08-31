@@ -224,9 +224,8 @@ jobs:
             # The zip already contains apmux.exe; add an aimux.exe entry so old
             # self-update finds what it expects.
             if command -v zip >/dev/null 2>&1; then
-              cp artifacts/apmux-windows-x64/apmux.exe /tmp/aimux.exe
-              (cd /tmp && zip -9 "release-assets/aimux-windows-x64.zip" aimux.exe)
-              rm -f /tmp/aimux.exe
+              cp artifacts/apmux-windows-x64/apmux.exe "$RUNNER_TEMP/aimux.exe"
+              (cd "$RUNNER_TEMP" && zip -9 "$GITHUB_WORKSPACE/release-assets/aimux-windows-x64.zip" aimux.exe)
             fi
           fi
 
