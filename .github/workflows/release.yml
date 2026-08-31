@@ -1,244 +1,152 @@
 name: Release
 
-# Binary build + GitHub Release assets. Called from release-plz in the same
-# run (GITHUB_TOKEN cannot start a second workflow). Also runs on a human
-# `git push` of a v* tag, and on workflow_dispatch.
+# Changesets-driven releases (no conventional-commit parsing):
+#   daily development happens on `develop` (all PRs target it; contributors do
+#     NOT add change files — maintainers decide if/when to release)
+#   maintainer pushes .changeset/*.md to `develop` to cut a release
+#     → `prepare-release` job: Knope consumes the change files on the
+#       `release` branch (Cargo.toml/Cargo.lock bump, CHANGELOG.md entry,
+#       change files deleted) and force-pushes it, then opens/updates the
+#       Release PR (release → main) for the maintainer to merge
+#   maintainer manually merges the Release PR
+#     → `publish-release` job: the push to `main` tags the merge commit and
+#       back-merges main into develop; pushing the tag fires
+#       `release-build.yml` (which listens on `push: tags: 'apmux/v*'`) to
+#       build installers and publish the GitHub Release
+#
+# `main` is release-only: never push features there. Hotfixes also go through
+# `develop` (push it with a change file for the fastest path to a release).
+#
+# Auto-merge was removed: GITHUB_TOKEN merges do not start a fresh workflow
+# and the "wait for merge_commit" loop was unreliable. Manual merge plus the
+# push-to-main trigger is simpler and easier to reason about.
+#
+# Repo setting: Actions → General → Workflow permissions →
+# "Allow GitHub Actions to create and approve pull requests".
+
 on:
-  workflow_call:
-    inputs:
-      tag:
-        description: Git tag to ship (e.g. v0.1.1)
-        required: true
-        type: string
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: Git tag to ship (e.g. v0.1.1)
-        required: true
-        type: string
   push:
-    tags:
-      - "v*"
+    branches:
+      - main
+      - develop
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
-
-concurrency:
-  group: release-${{ inputs.tag || github.ref_name }}
-  cancel-in-progress: true
-
-env:
-  CARGO_TERM_COLOR: always
-  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+  pull-requests: write
 
 jobs:
-  test:
-    name: Test
+  prepare-release:
+    name: Prepare & upsert Release PR
+    if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ env.RELEASE_TAG }}
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
-      - run: cargo test
-
-  build:
-    name: Build ${{ matrix.platform }}
-    needs: test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-14
-            platform: darwin-arm64
-            target: aarch64-apple-darwin
-            binary: apmux
-          - os: macos-14
-            platform: darwin-x64
-            target: x86_64-apple-darwin
-            binary: apmux
-          - os: windows-2022
-            platform: windows-x64
-            target: x86_64-pc-windows-msvc
-            binary: apmux.exe
-          - os: ubuntu-latest
-            platform: linux-x64-musl
-            target: x86_64-unknown-linux-musl
-            binary: apmux
-            musl_native: true
-          - os: ubuntu-latest
-            platform: linux-arm64-musl
-            target: aarch64-unknown-linux-musl
-            binary: apmux
-            use_cross: true
-
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          ref: ${{ env.RELEASE_TAG }}
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Install musl-tools
-        if: matrix.musl_native
+          fetch-depth: 0
+      - name: Skip when no pending changesets
+        id: gate
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends musl-tools
-          echo "CC_x86_64_unknown_linux_musl=musl-gcc" >> "$GITHUB_ENV"
-
-      - name: Install cross
-        if: matrix.use_cross
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cross
-
-      - name: Build (cross)
-        if: matrix.use_cross
-        run: cross build --release --target ${{ matrix.target }} --locked
-
-      - name: Build (cargo)
-        if: ${{ !matrix.use_cross }}
-        run: cargo build --release --target ${{ matrix.target }} --locked
-        env:
-          # Shrink panic/path strings baked into the binary.
-          RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=apmux
-
-      - name: Strip
-        shell: bash
-        run: |
-          bin="target/${{ matrix.target }}/release/${{ matrix.binary }}"
-          if command -v strip >/dev/null 2>&1 && [[ "${{ matrix.binary }}" != *.exe ]]; then
-            strip "$bin" || true
+          if compgen -G ".changeset/*.md" >/dev/null; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No pending changesets — nothing to release."
+            echo "run=false" >> "$GITHUB_OUTPUT"
           fi
-          ls -lh "$bin"
-
-      - name: Prepare artifact
-        shell: bash
+      - name: Configure Git
+        if: steps.gate.outputs.run == 'true'
         run: |
-          mkdir -p dist
-          cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" "dist/${{ matrix.binary }}"
-
-      - uses: actions/upload-artifact@v6
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Install Knope
+        if: steps.gate.outputs.run == 'true'
+        uses: knope-dev/action@v2.1.2
         with:
-          name: apmux-${{ matrix.platform }}
-          path: dist/${{ matrix.binary }}
-          if-no-files-found: error
-
-  universal-macos:
-    name: Universal macOS
-    runs-on: macos-14
-    needs: build
-    steps:
-      - uses: actions/download-artifact@v7
-        with:
-          name: apmux-darwin-arm64
-          path: arm64
-      - uses: actions/download-artifact@v7
-        with:
-          name: apmux-darwin-x64
-          path: x64
-      - name: lipo
+          version: 0.23.0
+      - name: Consume changesets on the release branch
+        if: steps.gate.outputs.run == 'true'
+        run: knope prepare-release --verbose
+      - name: Upsert Release PR
+        id: pr
+        if: steps.gate.outputs.run == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          mkdir -p universal
-          lipo -create -output universal/apmux arm64/apmux x64/apmux
-          chmod +x universal/apmux
-          file universal/apmux
-          ls -lh universal/apmux
-      - uses: actions/upload-artifact@v6
-        with:
-          name: apmux-darwin-universal
-          path: universal/apmux
-          if-no-files-found: error
+          set -euo pipefail
+          VERSION="$(git show origin/release:Cargo.toml | sed -n 's/^version = "\([^"]*\)".*/\1/p' | head -n1)"
+          TAG="apmux/v${VERSION}"
+          echo "version=${VERSION} tag=${TAG}"
+          {
+            echo "This PR was created by the release pipeline. After you merge it,"
+            echo "the push to \`main\` tags \`${TAG}\`, back-merges into develop,"
+            echo "and \`release-build.yml\` builds installers via the tag push."
+            echo
+            echo "## ${VERSION}"
+            echo
+            git show origin/release:CHANGELOG.md | awk '/^## / { n++ } n == 1' || true
+          } > body.md
+          if gh pr list --head release --state open --json number --jq 'length' | grep -q '^1$'; then
+            gh pr edit release --title "Release v${VERSION}" --body-file body.md
+          else
+            gh pr create --head release --base main \
+              --title "Release v${VERSION}" --body-file body.md
+          fi
 
-  release:
-    name: Publish GitHub Release
+  publish-release:
+    name: Tag release & back-merge develop
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    needs: [build, universal-macos]
     steps:
       - uses: actions/checkout@v5
         with:
-          ref: ${{ env.RELEASE_TAG }}
-      - uses: actions/download-artifact@v7
-        with:
-          path: artifacts
-          pattern: apmux-*
-      - name: Pack gzip/zip assets
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - name: Ensure release tag exists for the merged version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          set -euxo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends zip
-          mkdir -p release-assets
-          # Tag is `apmux/vX.Y.Z`; keep only the semver part for asset names.
-          VERSION="${RELEASE_TAG##*/}"
-          VERSION="${VERSION#v}"
-
-          pack_tar() {
-            local name="$1"
-            local src="$2"
-            if [ -f "$src" ]; then
-              tar -cf - -C "$(dirname "$src")" "$(basename "$src")" | gzip -9 > "release-assets/${name}.tar.gz"
-              cp "release-assets/${name}.tar.gz" "release-assets/${name//apmux/aimux}-${VERSION}-${name#apmux-}.tar.gz"
-            fi
+          set -euo pipefail
+          VERSION="$(sed -n 's/^version = "\([^"]*\)".*/\1/p' Cargo.toml | head -n1)"
+          if [ -z "$VERSION" ]; then
+            echo "Could not read version from Cargo.toml"
+            exit 1
+          fi
+          TAG="apmux/v${VERSION}"
+          SHA="$(git rev-parse HEAD)"
+          echo "version=${VERSION} tag=${TAG} sha=${SHA}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1 \
+            || gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists — skipping."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG}" -m "${TAG}"
+          if ! git push origin "refs/tags/${TAG}"; then
+            gh api "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref="refs/tags/${TAG}" \
+              -f sha="${SHA}"
+          fi
+          echo "created ${TAG} at ${SHA} — release-build.yml will build the binaries"
+      - name: Merge main back into develop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # bring the version bump + CHANGELOG from the merged Release PR back
+          # into develop; conflict is essentially impossible (only the bot
+          # writes Cargo.toml/CHANGELOG), but fail loudly rather than diverge
+          # silently.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin develop
+          git checkout -B develop origin/develop
+          git merge --no-edit origin/main || {
+            echo "::error::Merging main into develop conflicted — resolve manually and push."
+            exit 1
           }
-
-          pack_tar apmux-darwin-universal artifacts/apmux-darwin-universal/apmux
-          pack_tar apmux-darwin-arm64 artifacts/apmux-darwin-arm64/apmux
-          pack_tar apmux-darwin-x64 artifacts/apmux-darwin-x64/apmux
-          pack_tar apmux-linux-x64-musl artifacts/apmux-linux-x64-musl/apmux
-          pack_tar apmux-linux-arm64-musl artifacts/apmux-linux-arm64-musl/apmux
-
-          if [ -f artifacts/apmux-windows-x64/apmux.exe ]; then
-            (cd artifacts/apmux-windows-x64 && zip -9 "../../release-assets/apmux-windows-x64.zip" apmux.exe)
-            cp release-assets/apmux-windows-x64.zip "release-assets/aimux-${VERSION}-windows-x64.zip"
-            # Legacy alias: pre-rename binaries request `aimux-windows-x64.zip`.
-            cp release-assets/apmux-windows-x64.zip release-assets/aimux-windows-x64.zip
-          fi
-
-          # Legacy aliases: pre-rename binaries request `aimux-<platform>` names.
-          for a in release-assets/apmux-*.tar.gz; do
-            base="${a##*/}"
-            alias="release-assets/${base/apmux/aimux}"
-            if [ "$alias" != "$a" ] && [ ! -f "$alias" ]; then
-              cp "$a" "$alias"
-            fi
-          done
-
-          cp install.sh install.ps1 release-assets/
-          chmod 755 release-assets/install.sh
-
-          (
-            cd release-assets
-            sha256sum * > checksums.txt
-          )
-          ls -lh release-assets/
-
-      - uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ env.RELEASE_TAG }}
-          name: apmux ${{ env.RELEASE_TAG }}
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-          body: |
-            Linux / macOS:
-
-            ```bash
-            curl -fsSL https://github.com/iam2r/apmux/releases/latest/download/install.sh | bash
-            ```
-
-            Windows (PowerShell):
-
-            ```powershell
-            irm https://github.com/iam2r/apmux/releases/latest/download/install.ps1 | iex
-            ```
-
-            Linux assets are static musl builds. Archives are gzip/zip compressed.
-          files: release-assets/*
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          git push origin develop
+          echo "develop synced with main"
