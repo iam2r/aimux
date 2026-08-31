@@ -1,6 +1,6 @@
 export default {
 	extends: ['@commitlint/config-conventional'],
-	// aimux house style: conventional type(scope): subject, lowercase subject,
+	// apmux house style: conventional type(scope): subject, lowercase subject,
 	// header ≤ 100 chars (defaults cover body-max-line-length=100).
 	rules: {
 		'header-max-length': [2, 'always', 100],

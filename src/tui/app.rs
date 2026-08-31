@@ -1945,7 +1945,7 @@ mod tests {
         assert!(list.contains("add"));
         app.page = Page::Data;
         let d = crate::tui::help::text(&app);
-        assert!(d.contains("restore") && d.contains("push") || d.contains("aimux-sync"));
+        assert!(d.contains("restore") && d.contains("push") || d.contains("apmux-sync"));
         app.page = Page::Settings;
         let set = crate::tui::help::text(&app);
         assert!(set.contains("Language") || set.contains("detection") || set.contains("Space"));
@@ -2036,11 +2036,11 @@ mod tests {
         );
         let local = cloud::local_sync(&paths).expect("webdav.json");
         assert_eq!(local.url, url);
-        assert!(!local.url.contains("aimux-sync"));
+        assert!(!local.url.contains("apmux-sync"));
         let log = srv.methods();
         assert!(
             log.iter()
-                .any(|l| l.contains("MKCOL") && l.contains("/dav/aimux-sync")),
+                .any(|l| l.contains("MKCOL") && l.contains("/dav/apmux-sync")),
             "{log:?}"
         );
     }

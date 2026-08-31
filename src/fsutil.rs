@@ -14,7 +14,7 @@ thread_local! {
     static FAIL_STICKY: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Panic if `path` would touch the host `~/.aimux` / `~/.claude` / `~/.codex` /
+/// Panic if `path` would touch the host `~/.apmux` / `~/.claude` / `~/.codex` /
 /// `~/.config/opencode` / `~/.pi`. Tests must inject tempfile `Paths`.
 #[cfg(test)]
 pub(crate) fn panic_if_host_config_path(path: &Path) {
@@ -22,7 +22,8 @@ pub(crate) fn panic_if_host_config_path(path: &Path) {
         return;
     };
     let dirs = [
-        home.join(".aimux"),
+        home.join(".apmux"),
+        home.join(".aimux"), // pre-rename dir must stay protected too
         home.join(".claude"),
         home.join(".codex"),
         home.join(".config").join("opencode"),
@@ -261,7 +262,7 @@ mod tests {
     #[test]
     fn unix_modes_0600_and_0700() {
         let td = tmp();
-        let dir = td.path().join("aimux");
+        let dir = td.path().join("cfg");
         ensure_dir_0700(&dir).unwrap();
         assert_eq!(unix_mode(&dir), 0o700);
 
@@ -298,10 +299,10 @@ mod tests {
     }
 
     #[test]
-    fn isolation_rejects_host_aimux() {
+    fn isolation_rejects_host_config() {
         let home = dirs::home_dir().expect("home");
         let result = catch_unwind(AssertUnwindSafe(|| {
-            panic_if_host_config_path(&home.join(".aimux").join("store.json"));
+            panic_if_host_config_path(&home.join(".apmux").join("store.json"));
         }));
         assert!(result.is_err());
     }
@@ -343,10 +344,10 @@ mod tests {
     }
 
     #[test]
-    fn atomic_write_to_host_aimux_panics() {
+    fn atomic_write_to_host_config_panics() {
         let home = dirs::home_dir().expect("home");
         let result = catch_unwind(AssertUnwindSafe(|| {
-            let _ = atomic_write(&home.join(".aimux").join("store.json"), b"nope");
+            let _ = atomic_write(&home.join(".apmux").join("store.json"), b"nope");
         }));
         assert!(result.is_err());
     }

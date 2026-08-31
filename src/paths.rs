@@ -1,19 +1,22 @@
 use std::env;
+use std::fs;
 #[cfg(test)]
 use std::path::Path;
 use std::path::PathBuf;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 
-/// Resolved directories for aimux and the target CLIs.
+use crate::name;
+
+/// Resolved directories for apmux and the target CLIs.
 ///
 /// Production code uses [`Paths::from_env`]. Tests inject a tempfile home via
 /// [`Paths::for_test`] / [`Paths::from_home_and_env`] and must never write the
-/// host `~/.aimux`, `~/.claude`, `~/.codex`, `~/.config/opencode`, or `~/.pi`.
+/// host `~/.apmux`, `~/.claude`, `~/.codex`, `~/.config/opencode`, or `~/.pi`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Paths {
     pub home: PathBuf,
-    pub aimux_dir: PathBuf,
+    pub config_dir: PathBuf,
     pub claude_dir: PathBuf,
     pub codex_dir: PathBuf,
     pub opencode_dir: PathBuf,
@@ -23,7 +26,7 @@ pub struct Paths {
 /// Non-empty environment overrides. Empty strings are treated as unset.
 #[derive(Debug, Default, Clone)]
 pub struct EnvOverrides {
-    pub aimux_config_dir: Option<String>,
+    pub config_dir_override: Option<String>,
     pub claude_config_dir: Option<String>,
     pub codex_home: Option<String>,
     pub xdg_config_home: Option<String>,
@@ -33,7 +36,8 @@ pub struct EnvOverrides {
 impl EnvOverrides {
     pub fn from_os() -> Self {
         Self {
-            aimux_config_dir: nonempty_var(crate::name::ENV_CONFIG_DIR),
+            config_dir_override: nonempty_var(name::ENV_CONFIG_DIR)
+                .or_else(|| nonempty_var(name::LEGACY_ENV_CONFIG_DIR)),
             claude_config_dir: nonempty_var("CLAUDE_CONFIG_DIR"),
             codex_home: nonempty_var("CODEX_HOME"),
             xdg_config_home: nonempty_var("XDG_CONFIG_HOME"),
@@ -50,13 +54,41 @@ fn nonempty_var(name: &str) -> Option<String> {
 }
 
 impl Paths {
+    /// One-time migration of the pre-rename config directory
+    /// (`~/.aimux` → `~/.apmux`). Only the default location is migrated;
+    /// explicit `*_CONFIG_DIR` overrides are left untouched. In-place
+    /// `rename` is atomic on the same filesystem; on failure the tool keeps
+    /// working with the new (empty) directory and leaves the old one intact.
+    pub fn migrate_legacy_dir() -> Result<()> {
+        let home = dirs::home_dir().ok_or_else(|| anyhow!("cannot determine home directory"))?;
+        Self::migrate_legacy_dir_homed(&home)
+    }
+
+    /// Testable core of [`Self::migrate_legacy_dir`]: move `{home}/.aimux`
+    /// into `{home}/{DOT_DIR}` when the latter does not exist yet.
+    pub fn migrate_legacy_dir_homed(home: &std::path::Path) -> Result<()> {
+        let old = home.join(name::LEGACY_DOT_DIR);
+        let new = home.join(name::DOT_DIR);
+        if new.exists() || !old.exists() {
+            return Ok(());
+        }
+        fs::rename(&old, &new)
+            .with_context(|| format!("migrate config dir {} → {}", old.display(), new.display()))?;
+        println!(
+            "migrated config directory {} → {}",
+            old.display(),
+            new.display()
+        );
+        Ok(())
+    }
+
     pub fn from_env() -> Result<Self> {
         let home = dirs::home_dir().ok_or_else(|| anyhow!("cannot determine home directory"))?;
         Self::from_home_and_env(home, EnvOverrides::from_os())
     }
 
     pub fn from_home_and_env(home: PathBuf, env: EnvOverrides) -> Result<Self> {
-        let aimux_dir = match env.aimux_config_dir {
+        let config_dir = match env.config_dir_override {
             Some(dir) => PathBuf::from(dir),
             None => home.join(crate::name::DOT_DIR),
         };
@@ -86,7 +118,7 @@ impl Paths {
 
         let paths = Self {
             home,
-            aimux_dir,
+            config_dir,
             claude_dir,
             codex_dir,
             opencode_dir,
@@ -105,27 +137,27 @@ impl Paths {
     }
 
     pub fn store_file(&self) -> PathBuf {
-        self.aimux_dir.join("store.json")
+        self.config_dir.join("store.json")
     }
 
     pub fn draft_file(&self) -> PathBuf {
-        self.aimux_dir.join("providers.json")
+        self.config_dir.join("providers.json")
     }
 
     pub fn backups_dir(&self) -> PathBuf {
-        self.aimux_dir.join("backups")
+        self.config_dir.join("backups")
     }
 
     pub fn webdav_file(&self) -> PathBuf {
-        self.aimux_dir.join("webdav.json")
+        self.config_dir.join("webdav.json")
     }
 
     pub fn log_file(&self) -> PathBuf {
-        self.aimux_dir.join(crate::name::LOG_FILE)
+        self.config_dir.join(crate::name::LOG_FILE)
     }
 
     pub fn settings_file(&self) -> PathBuf {
-        self.aimux_dir.join("settings.json")
+        self.config_dir.join("settings.json")
     }
 
     #[cfg(test)]
@@ -150,7 +182,7 @@ impl Paths {
             ("~/.pi", real_home.join(".pi")),
         ];
         for (label, dir) in host {
-            if self.aimux_dir == dir
+            if self.config_dir == dir
                 || self.claude_dir == dir
                 || self.codex_dir == dir
                 || self.opencode_dir == dir
@@ -177,11 +209,44 @@ mod tests {
     }
 
     #[test]
+    fn migrate_moves_legacy_dir_into_dot_dir() {
+        let td = tmp();
+        let old = td.path().join(name::LEGACY_DOT_DIR);
+        fs::create_dir_all(&old).unwrap();
+        fs::write(old.join("store.json"), "{}").unwrap();
+        assert!(!td.path().join(name::DOT_DIR).exists());
+        Paths::migrate_legacy_dir_homed(td.path()).unwrap();
+        assert!(!old.exists());
+        assert!(td.path().join(name::DOT_DIR).join("store.json").exists());
+    }
+
+    #[test]
+    fn migrate_is_noop_when_new_dir_exists() {
+        let td = tmp();
+        let old = td.path().join(name::LEGACY_DOT_DIR);
+        let new = td.path().join(name::DOT_DIR);
+        fs::create_dir_all(&old).unwrap();
+        fs::write(old.join("sentinel"), "old").unwrap();
+        fs::create_dir_all(&new).unwrap();
+        fs::write(new.join("sentinel"), "new").unwrap();
+        Paths::migrate_legacy_dir_homed(td.path()).unwrap();
+        assert_eq!(fs::read_to_string(new.join("sentinel")).unwrap(), "new");
+        assert!(old.exists()); // untouched
+    }
+
+    #[test]
+    fn migrate_is_noop_when_legacy_dir_absent() {
+        let td = tmp();
+        Paths::migrate_legacy_dir_homed(td.path()).unwrap();
+        assert!(!td.path().join(name::DOT_DIR).exists());
+    }
+
+    #[test]
     fn for_test_uses_injected_home() {
         let td = tmp();
         let p = Paths::for_test(td.path());
         assert_eq!(p.home, td.path());
-        assert_eq!(p.aimux_dir, td.path().join(crate::name::DOT_DIR));
+        assert_eq!(p.config_dir, td.path().join(crate::name::DOT_DIR));
         assert_eq!(p.claude_dir, td.path().join(".claude"));
         assert_eq!(p.codex_dir, td.path().join(".codex"));
         assert_eq!(p.opencode_dir, td.path().join(".config").join("opencode"));
@@ -199,18 +264,18 @@ mod tests {
     }
 
     #[test]
-    fn aimux_config_dir_non_empty_wins() {
+    fn config_dir_override_non_empty_wins() {
         let td = tmp();
-        let custom = td.path().join("custom-aimux");
+        let custom = td.path().join("custom-cfg");
         let p = Paths::from_home_and_env(
             td.path().to_path_buf(),
             EnvOverrides {
-                aimux_config_dir: Some(custom.display().to_string()),
+                config_dir_override: Some(custom.display().to_string()),
                 ..EnvOverrides::default()
             },
         )
         .unwrap();
-        assert_eq!(p.aimux_dir, custom);
+        assert_eq!(p.config_dir, custom);
     }
 
     #[test]
@@ -289,7 +354,7 @@ mod tests {
         let p = Paths::from_home_and_env(
             td.path().to_path_buf(),
             EnvOverrides {
-                aimux_config_dir: Some(td.path().join("x").display().to_string()),
+                config_dir_override: Some(td.path().join("x").display().to_string()),
                 claude_config_dir: Some(td.path().join("c").display().to_string()),
                 pi_coding_agent_dir: Some(td.path().join("p").display().to_string()),
                 ..EnvOverrides::default()

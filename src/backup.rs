@@ -19,7 +19,7 @@ pub(crate) struct BackupEntry {
     pub timestamp: bool,
 }
 
-/// Snapshot `store.json` into `$AIMUX_CONFIG_DIR/backups/`. Live files are not copied.
+/// Snapshot `store.json` into `$APMUX_CONFIG_DIR/backups/`. Live files are not copied.
 /// `name = None` writes a local-time timestamp and rotates timestamp backups to 10.
 pub(crate) fn create(paths: &Paths, name: Option<&str>) -> Result<String> {
     let mut store = Store::load(paths)?;
@@ -31,7 +31,7 @@ pub(crate) fn create(paths: &Paths, name: Option<&str>) -> Result<String> {
     };
     let bytes = snapshot_bytes(paths, &store)?;
 
-    fsutil::ensure_dir_0700(&paths.aimux_dir)?;
+    fsutil::ensure_dir_0700(&paths.config_dir)?;
     let dir = paths.backups_dir();
     fsutil::ensure_dir_0700(&dir)?;
 

@@ -2,10 +2,10 @@ use std::process::Command;
 
 #[test]
 fn version_prints_semver_only() {
-    let out = Command::new(env!("CARGO_BIN_EXE_aimux"))
+    let out = Command::new(env!("CARGO_BIN_EXE_apmux"))
         .arg("--version")
         .output()
-        .expect("run aimux --version");
+        .expect("run apmux --version");
     assert!(
         out.status.success(),
         "stderr={}",
@@ -17,10 +17,10 @@ fn version_prints_semver_only() {
 
 #[test]
 fn update_help_lists_check_and_version() {
-    let out = Command::new(env!("CARGO_BIN_EXE_aimux"))
+    let out = Command::new(env!("CARGO_BIN_EXE_apmux"))
         .args(["update", "--help"])
         .output()
-        .expect("run aimux update --help");
+        .expect("run apmux update --help");
     assert!(
         out.status.success(),
         "stderr={}",

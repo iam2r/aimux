@@ -91,7 +91,7 @@ impl AgentAdapter for OpenCodeAdapter {
         }
         let doc = read_json_object(&self.live_file(paths))?;
         // "model": "<slot>/<model-id>" names the active entry; without it the
-        // config is not aimux-managed (OpenCode has no native-login mode).
+        // config is not apmux-managed (OpenCode has no native-login mode).
         let Some(model_ref) = doc.get("model").and_then(serde_json::Value::as_str) else {
             return Ok(Some(LiveFinger {
                 slot_key: String::new(),

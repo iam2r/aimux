@@ -39,7 +39,7 @@ async fn run_async(version: Option<String>, check: bool, json: bool) -> Result<(
 
     if homebrew && explicit {
         println!(
-            "aimux looks like a Homebrew install. Self-update to a specific version is not supported.\nPlease use: brew upgrade aimux"
+            "current binary looks like a Homebrew install. Self-update to a specific version is not supported.\nPlease use: brew upgrade apmux"
         );
         return Ok(());
     }
@@ -47,7 +47,7 @@ async fn run_async(version: Option<String>, check: bool, json: bool) -> Result<(
     let client = http_client()?;
     let release = fetch_target_release(&client, REPO_URL, version.as_deref()).await?;
     let target_tag = release.tag_name.clone();
-    // Tags are `aimux/vX.Y.Z` (or bare `vX.Y.Z`); keep only the semver part.
+    // Tags are `apmux/vX.Y.Z` (or bare `vX.Y.Z`); keep only the semver part.
     let target_version = semver_from_tag(&target_tag);
 
     if target_version == current_version {
@@ -57,14 +57,14 @@ async fn run_async(version: Option<String>, check: bool, json: bool) -> Result<(
 
     if should_skip_implicit_downgrade(current_version, target_version, explicit) {
         println!(
-            "Current version {current_version} is newer than target {target_tag}; skipping automatic downgrade. Use `aimux update --version {target_tag}` to force."
+            "Current version {current_version} is newer than target {target_tag}; skipping automatic downgrade. Use `{BINARY_NAME} update --version {target_tag}` to force."
         );
         return Ok(());
     }
 
     if homebrew {
         println!(
-            "Update {target_tag} is available (current {current_version}).\nPlease update with: brew upgrade aimux"
+            "Update {target_tag} is available (current {current_version}).\nPlease update with: brew upgrade apmux"
         );
         return Ok(());
     }
@@ -123,7 +123,10 @@ async fn run_async(version: Option<String>, check: bool, json: bool) -> Result<(
     replace_current_binary(&extracted)?;
 
     println!("Updated successfully to {target_tag}");
-    println!("Run `aimux --version` to verify the installed version.");
+    println!(
+        "Run `{} --version` to verify the installed version.",
+        BINARY_NAME
+    );
     Ok(())
 }
 
@@ -141,20 +144,20 @@ async fn check_only(json: bool) -> Result<()> {
         println!("Already on latest version: {}", info.current_version);
     } else if info.is_homebrew_managed {
         println!(
-            "Update {} is available (current {}).\nPlease update with: brew upgrade aimux",
+            "Update {} is available (current {}).\nPlease update with: brew upgrade apmux",
             info.target_tag, info.current_version
         );
     } else if info.is_downgrade {
         println!(
-            "Current version {} is newer than target {}; skipping automatic downgrade. Use `aimux update --version {}` to force.",
-            info.current_version, info.target_tag, info.target_tag
+            "Current version {} is newer than target {}; skipping automatic downgrade. Use `{} update --version {}` to force.",
+            info.current_version, info.target_tag, BINARY_NAME, info.target_tag
         );
     } else {
         println!(
             "Update {} is available (current {}).",
             info.target_tag, info.current_version
         );
-        println!("Run `aimux update` to download and apply it.");
+        println!("Run `{} update` to download and apply it.", BINARY_NAME);
     }
     Ok(())
 }
@@ -432,7 +435,7 @@ fn release_api_url(repo_url: &str, suffix: &str) -> Result<Url> {
 }
 
 fn extract_release_tag_from_url(url: &Url) -> Option<String> {
-    // Tags may contain '/' (e.g. `aimux/v0.1.1`); GitHub does not encode it
+    // Tags may contain '/' (e.g. `apmux/v0.1.1`); GitHub does not encode it
     // in the redirect path, so everything after `releases/tag/` belongs to
     // the tag and must be re-joined.
     let segments: Vec<&str> = url.path_segments()?.collect();
@@ -446,25 +449,30 @@ fn extract_release_tag_from_url(url: &Url) -> Option<String> {
     Some(rest.join("/"))
 }
 
-/// Accepts `<crate>/vX.Y.Z`, `vX.Y.Z`, or `X.Y.Z` and returns the canonical
-/// tag with the crate prefix attached.
+/// Accepts `apmux/vX.Y.Z`, `aimux/vX.Y.Z` (pre-rename), `vX.Y.Z`, or
+/// `X.Y.Z` and returns the canonical release tag with the crate prefix
+/// attached (`apmux/vX.Y.Z`).
 fn normalize_tag(version: &str) -> String {
     let v = version.trim();
     let prefix = format!("{CRATE_NAME}/");
-    if let Some(rest) = v.strip_prefix(&prefix) {
+    let rest = v
+        .strip_prefix(&prefix)
+        .or_else(|| v.strip_prefix("aimux/"))
+        .unwrap_or(v);
+    if rest.starts_with('v') {
         format!("{prefix}{rest}")
-    } else if v.starts_with('v') {
-        format!("{prefix}{v}")
     } else {
-        format!("{prefix}v{v}")
+        format!("{prefix}v{rest}")
     }
 }
 
-/// Tags are `<crate>/<version>`; only the prefix slash is allowed.
+/// Tags are `apmux/vX.Y.Z`, or legacy `aimux/vX.Y.Z`; only the leading crate
+/// prefix (current or pre-rename) is allowed.
 fn validate_target_tag(tag: &str) -> Result<()> {
     let prefix = format!("{CRATE_NAME}/");
-    if !tag.starts_with(&prefix) {
-        bail!("Invalid version tag '{tag}': must be '{prefix}<version>'.");
+    let legacy_prefix = "aimux/";
+    if !tag.starts_with(&prefix) && !tag.starts_with(legacy_prefix) {
+        bail!("Invalid version tag '{tag}': must be '{prefix}<version>' or 'aimux/v<version>'.");
     }
     if tag.len() > 64 {
         bail!("Invalid version tag '{tag}': too long.");
@@ -500,7 +508,7 @@ fn asset_candidates(os: &str, arch: &str) -> Result<Vec<String>> {
 
 fn tagged_asset_name(tag: &str, asset_name: &str) -> String {
     // Versioned assets use the bare semver (`<crate>-0.1.1-linux-…`), never
-    // the raw tag, so an `aimux/v0.1.1`-style tag must be reduced first.
+    // the raw tag, so an `apmux/v0.1.1`-style tag must be reduced first.
     let prefix = format!("{CRATE_NAME}-");
     match (
         asset_name.strip_prefix(prefix.as_str()),
@@ -759,7 +767,7 @@ fn replace_unix_binary(new_binary_path: &Path, current_binary: &Path) -> Result<
 fn map_permission(target: &Path, err: io::Error) -> anyhow::Error {
     if err.kind() == io::ErrorKind::PermissionDenied {
         anyhow!(
-            "Permission denied while updating {}. Re-run with elevated privileges (for example: sudo aimux update), or reinstall with install.sh / install.ps1.",
+            "Permission denied while updating {}. Re-run with elevated privileges (for example: sudo {BINARY_NAME} update), or reinstall with install.sh / install.ps1.",
             target.display()
         )
     } else {
@@ -807,9 +815,13 @@ fn should_skip_implicit_downgrade(
 }
 
 /// Strip an optional package prefix and `v` from a release tag:
-/// `aimux/v0.1.1` and `v0.1.1` both yield `0.1.1`.
+/// `apmux/v0.1.1`, `aimux/v0.1.1` (pre-rename tags), and `v0.1.1` all yield
+/// `0.1.1`. Both prefixes are accepted so installs that upgraded across the
+/// rename can still parse old release tags.
 fn semver_from_tag(tag: &str) -> &str {
-    tag.trim_start_matches("aimux/").trim_start_matches('v')
+    tag.trim_start_matches("apmux/")
+        .trim_start_matches("aimux/")
+        .trim_start_matches('v')
 }
 
 fn parse_version_nums(s: &str) -> Option<(u64, u64, u64)> {
@@ -830,16 +842,20 @@ mod tests {
     fn normalize_and_validate_tags() {
         // Bare semver, v-prefixed, and full-tag forms all normalize to the
         // canonical `<crate>/vX.Y.Z`.
-        assert_eq!(normalize_tag("0.2.0"), "aimux/v0.2.0");
-        assert_eq!(normalize_tag("v0.2.0"), "aimux/v0.2.0");
-        assert_eq!(normalize_tag("aimux/v0.2.0"), "aimux/v0.2.0");
-        validate_target_tag("aimux/v0.2.0").unwrap();
-        validate_target_tag("aimux/v1.0.0-rc.1").unwrap();
+        assert_eq!(normalize_tag("0.2.0"), "apmux/v0.2.0");
+        assert_eq!(normalize_tag("v0.2.0"), "apmux/v0.2.0");
+        assert_eq!(normalize_tag("apmux/v0.2.0"), "apmux/v0.2.0");
+        assert_eq!(normalize_tag("aimux/v0.2.0"), "apmux/v0.2.0"); // pre-rename input
+        validate_target_tag("apmux/v0.2.0").unwrap();
+        validate_target_tag("apmux/v1.0.0-rc.1").unwrap();
         assert!(validate_target_tag("v0.2.0").is_err());
         assert!(validate_target_tag("0.2.0").is_err());
-        assert!(validate_target_tag("aimux/v../etc").is_err());
-        assert!(validate_target_tag("aimux/vfoo/bar").is_err());
+        assert!(validate_target_tag("apmux/v../etc").is_err());
+        assert!(validate_target_tag("apmux/vfoo/bar").is_err());
         assert!(validate_target_tag("other/v0.2.0").is_err());
+        // Legacy pre-rename tags stay parseable for semver/version checks.
+        assert_eq!(semver_from_tag("aimux/v0.1.18"), "0.1.18");
+        assert_eq!(semver_from_tag("apmux/v0.1.18"), "0.1.18");
     }
 
     #[test]
@@ -847,17 +863,17 @@ mod tests {
         assert_eq!(
             asset_candidates("macos", "aarch64").unwrap(),
             vec![
-                "aimux-darwin-universal.tar.gz".to_string(),
-                "aimux-darwin-arm64.tar.gz".to_string()
+                "apmux-darwin-universal.tar.gz".to_string(),
+                "apmux-darwin-arm64.tar.gz".to_string()
             ]
         );
         assert_eq!(
             asset_candidates("linux", "x86_64").unwrap(),
-            vec!["aimux-linux-x64-musl.tar.gz".to_string()]
+            vec!["apmux-linux-x64-musl.tar.gz".to_string()]
         );
         assert_eq!(
             asset_candidates("windows", "x86_64").unwrap(),
-            vec!["aimux-windows-x64.zip".to_string()]
+            vec!["apmux-windows-x64.zip".to_string()]
         );
         assert!(asset_candidates("linux", "riscv64").is_err());
     }
@@ -866,7 +882,7 @@ mod tests {
     fn tagged_and_plain_asset_names_are_both_accepted() {
         let assets = vec![
             ReleaseAsset {
-                name: "aimux-0.2.0-linux-x64-musl.tar.gz".into(),
+                name: "apmux-0.2.0-linux-x64-musl.tar.gz".into(),
                 browser_download_url: "https://example.invalid/a".into(),
                 digest: None,
             },
@@ -876,17 +892,17 @@ mod tests {
                 digest: None,
             },
         ];
-        let expected = vec!["aimux-linux-x64-musl.tar.gz".to_string()];
+        let expected = vec!["apmux-linux-x64-musl.tar.gz".to_string()];
         // Full tag form reduces to the bare version in asset names.
         let selected = select_release_asset(&assets, "aimux/v0.2.0", &expected).unwrap();
-        assert_eq!(selected.name, "aimux-0.2.0-linux-x64-musl.tar.gz");
+        assert_eq!(selected.name, "apmux-0.2.0-linux-x64-musl.tar.gz");
     }
 
     #[test]
     fn prefers_untagged_asset_name() {
         let assets = vec![
             ReleaseAsset {
-                name: "aimux-linux-x64-musl.tar.gz".into(),
+                name: "apmux-linux-x64-musl.tar.gz".into(),
                 browser_download_url: "https://example.invalid/a".into(),
                 digest: None,
             },
@@ -896,18 +912,18 @@ mod tests {
                 digest: None,
             },
         ];
-        let expected = vec!["aimux-linux-x64-musl.tar.gz".to_string()];
+        let expected = vec!["apmux-linux-x64-musl.tar.gz".to_string()];
         let selected = select_release_asset(&assets, "v0.2.0", &expected).unwrap();
-        assert_eq!(selected.name, "aimux-linux-x64-musl.tar.gz");
+        assert_eq!(selected.name, "apmux-linux-x64-musl.tar.gz");
     }
 
     #[test]
     fn checksum_parser_accepts_text_and_binary_sha256sum() {
         let body = "\
-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  aimux-linux-x64-musl.tar.gz\n\
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa  apmux-linux-x64-musl.tar.gz\n\
 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb *checksums.txt\n";
         assert_eq!(
-            parse_checksum_for_asset(body, "aimux-linux-x64-musl.tar.gz").unwrap(),
+            parse_checksum_for_asset(body, "apmux-linux-x64-musl.tar.gz").unwrap(),
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
         );
         assert_eq!(
@@ -941,21 +957,21 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb *checksums.txt\
 
     #[test]
     fn repo_urls_map_to_github_api_and_pages() {
-        let api = release_api_url("https://github.com/iam2r/aimux", "latest").unwrap();
+        let api = release_api_url("https://github.com/iam2r/apmux", "latest").unwrap();
         assert_eq!(
             api.as_str(),
-            "https://api.github.com/repos/iam2r/aimux/releases/latest"
+            "https://api.github.com/repos/iam2r/apmux/releases/latest"
         );
         let page = release_page_url(
-            "https://github.com/iam2r/aimux.git",
+            "https://github.com/iam2r/apmux.git",
             "download/v0.2.0/checksums.txt",
         )
         .unwrap();
         assert_eq!(
             page.as_str(),
-            "https://github.com/iam2r/aimux/releases/download/v0.2.0/checksums.txt"
+            "https://github.com/iam2r/apmux/releases/download/v0.2.0/checksums.txt"
         );
-        let tag_url = Url::parse("https://github.com/iam2r/aimux/releases/tag/v0.2.0").unwrap();
+        let tag_url = Url::parse("https://github.com/iam2r/apmux/releases/tag/v0.2.0").unwrap();
         assert_eq!(
             extract_release_tag_from_url(&tag_url).as_deref(),
             Some("v0.2.0")
@@ -966,10 +982,10 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb *checksums.txt\
     #[test]
     fn extracts_binary_from_tar_gz() {
         let temp = tempfile::tempdir().unwrap();
-        let archive = temp.path().join("aimux-linux-x64-musl.tar.gz");
-        write_tar_gz(&archive, BINARY_NAME, b"fake-aimux-bytes");
+        let archive = temp.path().join("apmux-linux-x64-musl.tar.gz");
+        write_tar_gz(&archive, BINARY_NAME, b"fake-bytes");
         let extracted = extract_binary(&archive).unwrap();
-        assert_eq!(fs::read(&extracted).unwrap(), b"fake-aimux-bytes");
+        assert_eq!(fs::read(&extracted).unwrap(), b"fake-bytes");
         assert_eq!(extracted.file_name().unwrap(), BINARY_NAME);
     }
 
@@ -977,13 +993,13 @@ bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb *checksums.txt\
     #[test]
     fn unix_replace_renames_over_destination() {
         let temp = tempfile::tempdir().unwrap();
-        let dest = temp.path().join("aimux");
+        let dest = temp.path().join("bin");
         let src = temp.path().join("new");
         fs::write(&dest, b"old").unwrap();
         fs::write(&src, b"new-bytes").unwrap();
         replace_unix_binary(&src, &dest).unwrap();
         assert_eq!(fs::read(&dest).unwrap(), b"new-bytes");
-        assert!(!temp.path().join("aimux.new").exists());
+        assert!(!temp.path().join("bin.new").exists());
     }
 
     #[cfg(not(windows))]

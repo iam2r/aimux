@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest an idea for aimux
+description: Suggest an idea for apmux
 labels: [enhancement]
 body:
   - type: textarea

@@ -37,7 +37,7 @@ struct Cli {
     #[arg(short = 'V', long = "version", action = clap::ArgAction::SetTrue)]
     print_version: bool,
 
-    /// UI language: en or zh (default: English; also AIMUX_LANG / LANG)
+    /// UI language: en or zh (default: English; also APMUX_LANG / legacy AIMUX_LANG / LANG)
     #[arg(long, global = true, env = crate::name::ENV_LANG)]
     lang: Option<String>,
 
@@ -51,7 +51,7 @@ enum Commands {
     List {
         #[arg(long)]
         app: Option<AppId>,
-        /// JSON to stdout. Keys stay masked unless AIMUX_SHOW_SECRETS=1 (dangerous).
+        /// JSON to stdout. Keys stay masked unless APMUX_SHOW_SECRETS=1 (dangerous).
         #[arg(long)]
         json: bool,
     },
@@ -59,7 +59,7 @@ enum Commands {
     Current {
         #[arg(long)]
         app: Option<AppId>,
-        /// JSON to stdout. Keys stay masked unless AIMUX_SHOW_SECRETS=1 (dangerous).
+        /// JSON to stdout. Keys stay masked unless APMUX_SHOW_SECRETS=1 (dangerous).
         #[arg(long)]
         json: bool,
     },
@@ -228,7 +228,7 @@ enum SyncAction {
 }
 
 fn main() {
-    let cli = match Cli::try_parse() {
+    let mut cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(e) => {
             let _ = e.print();
@@ -236,6 +236,11 @@ fn main() {
             std::process::exit(if e.use_stderr() { 1 } else { 0 });
         }
     };
+    // Legacy env-var compatibility: prefer `APMUX_*`, fall back to the
+    // pre-rename `AIMUX_*` so existing shells keep working.
+    if cli.lang.is_none() {
+        cli.lang = crate::name::read_env(crate::name::ENV_LANG, crate::name::LEGACY_ENV_LANG);
+    }
     if cli.print_version {
         println!("{}", env!("CARGO_PKG_VERSION"));
         return;
@@ -253,6 +258,11 @@ fn init_cli_logger() {
 }
 
 fn run(cli: Cli) -> Result<()> {
+    // One-time local config-dir migration (~/.apmux → ~/.apmux); best-effort
+    // and idempotent.
+    if let Err(e) = Paths::migrate_legacy_dir() {
+        log::warn!("config dir migration skipped: {e:#}");
+    }
     match cli.command {
         None => {
             let paths = Paths::from_env()?;
@@ -750,7 +760,7 @@ mod tests {
     #[test]
     fn add_shape() {
         let cli = Cli::try_parse_from([
-            "aimux",
+            "apmux",
             "add",
             "--app",
             "opencode",
@@ -797,7 +807,7 @@ mod tests {
     #[test]
     fn snippet_shape() {
         let cli = Cli::try_parse_from([
-            "aimux",
+            "apmux",
             "snippet",
             "packy",
             "--set",
@@ -819,7 +829,7 @@ mod tests {
             other => panic!("unexpected {other:?}"),
         }
         let cli = Cli::try_parse_from([
-            "aimux",
+            "apmux",
             "add",
             "--app",
             "claude",
@@ -1018,7 +1028,7 @@ mod tests {
         let help = Cli::try_parse_from([crate::name::NAME, "list", "--help"]).unwrap_err();
         assert!(!help.use_stderr());
         let help_text = help.to_string();
-        assert!(help_text.contains("AIMUX_SHOW_SECRETS=1"));
+        assert!(help_text.contains("APMUX_SHOW_SECRETS=1"));
         assert!(help_text.contains("dangerous"));
     }
 
@@ -1070,7 +1080,7 @@ mod tests {
             })
         ));
         let cli = Cli::try_parse_from([
-            "aimux",
+            "apmux",
             "sync",
             "setup",
             "--url",
@@ -1088,7 +1098,7 @@ mod tests {
             })
         ));
         assert!(Cli::try_parse_from([
-            "aimux",
+            "apmux",
             "sync",
             "setup",
             "--url",

@@ -72,7 +72,7 @@ pub(crate) fn namespaced_collection(base: &str) -> Result<String> {
 }
 
 /// Append directory segments without replacing the last path component.
-/// `https://host/dav` + `aimux-sync` → `https://host/dav/aimux-sync`.
+/// `https://host/dav` + `apmux-sync` → `https://host/dav/apmux-sync`.
 pub(crate) fn join_dir(base: &str, extra: &str) -> Result<String> {
     let base = base.trim();
     let extra = extra.trim().trim_matches('/');
@@ -267,6 +267,17 @@ impl DavClient {
             other => anyhow::bail!("PUT {} failed: HTTP {other}", redact_url(url)),
         }
     }
+
+    /// DELETE a remote file or collection (best-effort at the protocol level;
+    /// callers decide how strict to be).
+    pub(crate) async fn delete(&self, url: &str) -> Result<()> {
+        let (status, _) = self.send(Method::DELETE, url, None, &[], true).await?;
+        match status.as_u16() {
+            200 | 202 | 204 | 404 => Ok(()),
+            401 | 403 => anyhow::bail!("webdav auth failed"),
+            other => anyhow::bail!("DELETE {} failed: HTTP {other}", redact_url(url)),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -399,6 +410,13 @@ pub(crate) mod mock {
                 Some(b) => (200, b.clone()),
                 None => (404, Vec::new()),
             },
+            "DELETE" => {
+                if st.files.remove(path).is_some() || st.collections.remove(path) {
+                    (204, Vec::new())
+                } else {
+                    (404, Vec::new())
+                }
+            }
             "HEAD" => {
                 if st.files.contains_key(path) || st.collections.contains(path) {
                     (200, Vec::new())
@@ -498,7 +516,7 @@ mod tests {
     fn validate_does_not_append_namespace() {
         let url = "https://webdav.example.com/dav/";
         assert_eq!(validate_remote_url(url).unwrap(), url);
-        assert!(!validate_remote_url(url).unwrap().contains("aimux-sync"));
+        assert!(!validate_remote_url(url).unwrap().contains("apmux-sync"));
     }
 
     #[test]
@@ -511,10 +529,10 @@ mod tests {
 
     #[test]
     fn join_dir_keeps_last_segment() {
-        let u = join_dir("https://webdav.example.com/dav", "aimux-sync").unwrap();
-        assert_eq!(u, "https://webdav.example.com/dav/aimux-sync");
-        let u = join_dir("https://webdav.example.com/", "aimux-sync").unwrap();
-        assert_eq!(u, "https://webdav.example.com/aimux-sync");
+        let u = join_dir("https://webdav.example.com/dav", "apmux-sync").unwrap();
+        assert_eq!(u, "https://webdav.example.com/dav/apmux-sync");
+        let u = join_dir("https://webdav.example.com/", "apmux-sync").unwrap();
+        assert_eq!(u, "https://webdav.example.com/apmux-sync");
         let u = join_dir("https://webdav.example.com/", "").unwrap();
         assert_eq!(u, "https://webdav.example.com/");
         let err = join_dir("https://example.com/dav", "..").unwrap_err();
@@ -522,22 +540,22 @@ mod tests {
     }
 
     #[test]
-    fn namespaced_collection_appends_aimux_sync() {
+    fn namespaced_collection_appends_apmux_sync() {
         assert_eq!(
             namespaced_collection("https://webdav.example.com/dav/").unwrap(),
-            "https://webdav.example.com/dav/aimux-sync"
+            "https://webdav.example.com/dav/apmux-sync"
         );
         assert_eq!(
             namespaced_collection("https://webdav.example.com").unwrap(),
-            "https://webdav.example.com/aimux-sync"
+            "https://webdav.example.com/apmux-sync"
         );
-        assert_eq!(NAMESPACE, "aimux-sync");
+        assert_eq!(NAMESPACE, "apmux-sync");
     }
 
     #[test]
     fn mkcol_sent_to_mock_http_server() {
         let srv = MockServer::start();
-        let url = srv.collection_url("/dav/aimux-sync");
+        let url = srv.collection_url("/dav/apmux-sync");
         block_on(async {
             let client = DavClient::new("user", "secret")?;
             client.ensure_remote_directories(&url).await
@@ -545,17 +563,17 @@ mod tests {
         .unwrap();
         let log = srv.methods();
         assert!(
-            log.iter().any(|l| l.starts_with("MKCOL /dav/aimux-sync")),
+            log.iter().any(|l| l.starts_with("MKCOL /dav/apmux-sync")),
             "expected MKCOL of user path, got {log:?}"
         );
         assert!(
             !log.iter()
-                .any(|l| l.contains("/aimux") && !l.contains("/aimux-sync")),
+                .any(|l| l.contains("/aimux") && !l.contains("/apmux-sync")),
             "must not invent /aimux: {log:?}"
         );
         let st = srv.state.lock().unwrap();
         assert!(st.collections.contains("/dav"));
-        assert!(st.collections.contains("/dav/aimux-sync"));
+        assert!(st.collections.contains("/dav/apmux-sync"));
     }
 
     #[test]
@@ -564,11 +582,11 @@ mod tests {
         {
             let mut st = srv.state.lock().unwrap();
             st.collections.insert("/dav".into());
-            st.collections.insert("/dav/aimux-sync".into());
-            st.propfind_hide.insert("/dav/aimux-sync".into());
-            st.mkcol_override.insert("/dav/aimux-sync".into(), 405);
+            st.collections.insert("/dav/apmux-sync".into());
+            st.propfind_hide.insert("/dav/apmux-sync".into());
+            st.mkcol_override.insert("/dav/apmux-sync".into(), 405);
         }
-        let url = srv.collection_url("/dav/aimux-sync");
+        let url = srv.collection_url("/dav/apmux-sync");
         block_on(async {
             let client = DavClient::new("user", "secret")?;
             client.ensure_remote_directories(&url).await
@@ -581,12 +599,12 @@ mod tests {
             .cloned()
             .collect();
         assert!(
-            mkcols.iter().any(|l| l == "MKCOL /dav/aimux-sync"),
+            mkcols.iter().any(|l| l == "MKCOL /dav/apmux-sync"),
             "{log:?}"
         );
         let propfinds = log
             .iter()
-            .filter(|l| l.as_str() == "PROPFIND /dav/aimux-sync")
+            .filter(|l| l.as_str() == "PROPFIND /dav/apmux-sync")
             .count();
         assert!(propfinds >= 2, "405 should re-PROPFIND, got {log:?}");
     }

@@ -57,24 +57,24 @@ jobs:
           - os: macos-14
             platform: darwin-arm64
             target: aarch64-apple-darwin
-            binary: aimux
+            binary: apmux
           - os: macos-14
             platform: darwin-x64
             target: x86_64-apple-darwin
-            binary: aimux
+            binary: apmux
           - os: windows-2022
             platform: windows-x64
             target: x86_64-pc-windows-msvc
-            binary: aimux.exe
+            binary: apmux.exe
           - os: ubuntu-latest
             platform: linux-x64-musl
             target: x86_64-unknown-linux-musl
-            binary: aimux
+            binary: apmux
             musl_native: true
           - os: ubuntu-latest
             platform: linux-arm64-musl
             target: aarch64-unknown-linux-musl
-            binary: aimux
+            binary: apmux
             use_cross: true
 
     steps:
@@ -107,7 +107,7 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }} --locked
         env:
           # Shrink panic/path strings baked into the binary.
-          RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=aimux
+          RUSTFLAGS: --remap-path-prefix=${{ github.workspace }}=apmux
 
       - name: Strip
         shell: bash
@@ -126,7 +126,7 @@ jobs:
 
       - uses: actions/upload-artifact@v6
         with:
-          name: aimux-${{ matrix.platform }}
+          name: apmux-${{ matrix.platform }}
           path: dist/${{ matrix.binary }}
           if-no-files-found: error
 
@@ -137,23 +137,23 @@ jobs:
     steps:
       - uses: actions/download-artifact@v7
         with:
-          name: aimux-darwin-arm64
+          name: apmux-darwin-arm64
           path: arm64
       - uses: actions/download-artifact@v7
         with:
-          name: aimux-darwin-x64
+          name: apmux-darwin-x64
           path: x64
       - name: lipo
         run: |
           mkdir -p universal
-          lipo -create -output universal/aimux arm64/aimux x64/aimux
-          chmod +x universal/aimux
-          file universal/aimux
-          ls -lh universal/aimux
+          lipo -create -output universal/apmux arm64/apmux x64/apmux
+          chmod +x universal/apmux
+          file universal/apmux
+          ls -lh universal/apmux
       - uses: actions/upload-artifact@v6
         with:
-          name: aimux-darwin-universal
-          path: universal/aimux
+          name: apmux-darwin-universal
+          path: universal/apmux
           if-no-files-found: error
 
   release:
@@ -167,14 +167,14 @@ jobs:
       - uses: actions/download-artifact@v7
         with:
           path: artifacts
-          pattern: aimux-*
+          pattern: apmux-*
       - name: Pack gzip/zip assets
         run: |
           set -euxo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends zip
           mkdir -p release-assets
-          # Tag is `aimux/vX.Y.Z`; keep only the semver part for asset names.
+          # Tag is `apmux/vX.Y.Z`; keep only the semver part for asset names.
           VERSION="${RELEASE_TAG##*/}"
           VERSION="${VERSION#v}"
 
@@ -183,20 +183,31 @@ jobs:
             local src="$2"
             if [ -f "$src" ]; then
               tar -cf - -C "$(dirname "$src")" "$(basename "$src")" | gzip -9 > "release-assets/${name}.tar.gz"
-              cp "release-assets/${name}.tar.gz" "release-assets/aimux-${VERSION}-${name#aimux-}.tar.gz"
+              cp "release-assets/${name}.tar.gz" "release-assets/${name//apmux/aimux}-${VERSION}-${name#apmux-}.tar.gz"
             fi
           }
 
-          pack_tar aimux-darwin-universal artifacts/aimux-darwin-universal/aimux
-          pack_tar aimux-darwin-arm64 artifacts/aimux-darwin-arm64/aimux
-          pack_tar aimux-darwin-x64 artifacts/aimux-darwin-x64/aimux
-          pack_tar aimux-linux-x64-musl artifacts/aimux-linux-x64-musl/aimux
-          pack_tar aimux-linux-arm64-musl artifacts/aimux-linux-arm64-musl/aimux
+          pack_tar apmux-darwin-universal artifacts/apmux-darwin-universal/apmux
+          pack_tar apmux-darwin-arm64 artifacts/apmux-darwin-arm64/apmux
+          pack_tar apmux-darwin-x64 artifacts/apmux-darwin-x64/apmux
+          pack_tar apmux-linux-x64-musl artifacts/apmux-linux-x64-musl/apmux
+          pack_tar apmux-linux-arm64-musl artifacts/apmux-linux-arm64-musl/apmux
 
-          if [ -f artifacts/aimux-windows-x64/aimux.exe ]; then
-            (cd artifacts/aimux-windows-x64 && zip -9 "../../release-assets/aimux-windows-x64.zip" aimux.exe)
-            cp release-assets/aimux-windows-x64.zip "release-assets/aimux-${VERSION}-windows-x64.zip"
+          if [ -f artifacts/apmux-windows-x64/apmux.exe ]; then
+            (cd artifacts/apmux-windows-x64 && zip -9 "../../release-assets/apmux-windows-x64.zip" apmux.exe)
+            cp release-assets/apmux-windows-x64.zip "release-assets/aimux-${VERSION}-windows-x64.zip"
+            # Legacy alias: pre-rename binaries request `aimux-windows-x64.zip`.
+            cp release-assets/apmux-windows-x64.zip release-assets/aimux-windows-x64.zip
           fi
+
+          # Legacy aliases: pre-rename binaries request `aimux-<platform>` names.
+          for a in release-assets/apmux-*.tar.gz; do
+            base="${a##*/}"
+            alias="release-assets/${base/apmux/aimux}"
+            if [ "$alias" != "$a" ] && [ ! -f "$alias" ]; then
+              cp "$a" "$alias"
+            fi
+          done
 
           cp install.sh install.ps1 release-assets/
           chmod 755 release-assets/install.sh
@@ -210,7 +221,7 @@ jobs:
       - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: aimux ${{ env.RELEASE_TAG }}
+          name: apmux ${{ env.RELEASE_TAG }}
           draft: false
           prerelease: false
           generate_release_notes: true
@@ -218,13 +229,13 @@ jobs:
             Linux / macOS:
 
             ```bash
-            curl -fsSL https://github.com/iam2r/aimux/releases/latest/download/install.sh | bash
+            curl -fsSL https://github.com/iam2r/apmux/releases/latest/download/install.sh | bash
             ```
 
             Windows (PowerShell):
 
             ```powershell
-            irm https://github.com/iam2r/aimux/releases/latest/download/install.ps1 | iex
+            irm https://github.com/iam2r/apmux/releases/latest/download/install.ps1 | iex
             ```
 
             Linux assets are static musl builds. Archives are gzip/zip compressed.

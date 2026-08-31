@@ -61,10 +61,10 @@ pub struct RescuedRow {
 
 /// A reverse-read of the app's live config: who is actually active right
 /// now. [`AgentAdapter::inspect`] produces one without touching the store;
-/// `aimux status` then reconciles it against the store to expose drift.
+/// `apmux status` then reconciles it against the store to expose drift.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct LiveFinger {
-    /// The slot key the live config points at (the display name aimux
+    /// The slot key the live config points at (the display name apmux
     /// writes); empty for apps whose config carries no slot identity
     /// (Claude injects plain env keys).
     pub slot_key: String,
@@ -189,7 +189,7 @@ pub trait AgentAdapter: Send + Sync {
     }
     /// Read the app's live config to see who is currently active, without
     /// consulting the store. `Ok(None)` means "not installed / nothing to
-    /// report" (no live dir). Used by `aimux status`.
+    /// report" (no live dir). Used by `apmux status`.
     fn inspect(&self, paths: &Paths) -> Result<Option<LiveFinger>> {
         let _ = (self, paths);
         Ok(None)

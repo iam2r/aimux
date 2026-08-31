@@ -319,7 +319,7 @@ fn write_pi_models(doc: &mut Value, provider: &Provider, model_id: &str) -> Resu
         let models = slot
             .get_mut("models")
             .and_then(Value::as_array_mut)
-            .ok_or_else(|| anyhow::anyhow!("expected array at providers.aimux.models"))?;
+            .ok_or_else(|| anyhow::anyhow!("expected array at providers.{key}.models"))?;
         if !models
             .iter()
             .any(|m| m.get("id").and_then(Value::as_str) == Some(model_id))

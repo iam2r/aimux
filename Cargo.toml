@@ -1,10 +1,10 @@
 [package]
-name = "aimux"
+name = "apmux"
 version = "0.1.18"
 edition = "2021"
-description = "Lightweight AI CLI config switcher with backup & cloud sync"
+description = "Lightweight AI CLI provider switcher with backup & cloud sync"
 license = "MIT"
-repository = "https://github.com/iam2r/aimux"
+repository = "https://github.com/iam2r/apmux"
 publish = false
 
 [dependencies]

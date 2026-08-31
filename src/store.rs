@@ -300,7 +300,7 @@ impl Store {
     }
 
     pub fn save(&self, paths: &Paths) -> Result<()> {
-        fsutil::ensure_dir_0700(&paths.aimux_dir)?;
+        fsutil::ensure_dir_0700(&paths.config_dir)?;
         let path = paths.store_file();
         let mut data = serde_json::to_string_pretty(self).context("serialize store.json")?;
         if !data.ends_with('\n') {
@@ -547,7 +547,7 @@ fn migrate_draft(paths: &Paths, draft_path: &Path) -> Result<Store> {
     };
     store.save(paths)?;
 
-    let bak = paths.aimux_dir.join("providers.json.bak");
+    let bak = paths.config_dir.join("providers.json.bak");
     fsutil::rename_replace(draft_path, &bak)?;
     fsutil::chmod_file_0600(&bak)?;
     log::debug!("store.load migrated draft -> {}", bak.display());
@@ -608,7 +608,7 @@ mod tests {
     #[test]
     fn legacy_app_snippets_copy_onto_providers() {
         let (_td, paths) = setup();
-        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fsutil::ensure_dir_0700(&paths.config_dir).unwrap();
         fs::write(
             paths.store_file(),
             r#"{
@@ -651,7 +651,7 @@ mod tests {
             s
         });
         assert!(!paths.store_file().exists());
-        assert!(!paths.aimux_dir.exists());
+        assert!(!paths.config_dir.exists());
         drop(td);
     }
 
@@ -686,7 +686,7 @@ mod tests {
     #[test]
     fn future_version_is_rejected() {
         let (_td, paths) = setup();
-        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fsutil::ensure_dir_0700(&paths.config_dir).unwrap();
         fs::write(
             paths.store_file(),
             r#"{"version":99,"current":{},"providers":{}}"#,
@@ -713,7 +713,7 @@ mod tests {
     #[test]
     fn future_version_incompatible_schema_is_rejected() {
         let (_td, paths) = setup();
-        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fsutil::ensure_dir_0700(&paths.config_dir).unwrap();
         fs::write(
             paths.store_file(),
             r#"{"version":99,"current":"packy","providers":[]}"#,
@@ -770,7 +770,7 @@ mod tests {
     #[test]
     fn draft_migration_promotes_wire_api_and_current() {
         let (_td, paths) = setup();
-        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fsutil::ensure_dir_0700(&paths.config_dir).unwrap();
         let draft = r#"{
             "providers": {
                 "packy": {
@@ -803,23 +803,23 @@ mod tests {
 
         assert!(paths.store_file().exists());
         assert!(!paths.draft_file().exists());
-        assert!(paths.aimux_dir.join("providers.json.bak").exists());
+        assert!(paths.config_dir.join("providers.json.bak").exists());
 
         #[cfg(unix)]
         {
             assert_eq!(unix_mode(&paths.store_file()), 0o600);
             assert_eq!(
-                unix_mode(&paths.aimux_dir.join("providers.json.bak")),
+                unix_mode(&paths.config_dir.join("providers.json.bak")),
                 0o600
             );
-            assert_eq!(unix_mode(&paths.aimux_dir), 0o700);
+            assert_eq!(unix_mode(&paths.config_dir), 0o700);
         }
     }
 
     #[test]
     fn draft_gemini_records_are_dropped_not_mapped() {
         let (_td, paths) = setup();
-        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fsutil::ensure_dir_0700(&paths.config_dir).unwrap();
         fs::write(
             paths.draft_file(),
             r#"{
@@ -858,7 +858,7 @@ mod tests {
     #[test]
     fn store_json_gemini_providers_and_current_are_dropped() {
         let (_td, paths) = setup();
-        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fsutil::ensure_dir_0700(&paths.config_dir).unwrap();
         fs::write(
             paths.store_file(),
             r#"{
@@ -906,7 +906,7 @@ mod tests {
     #[test]
     fn draft_missing_current_id_yields_empty_current() {
         let (_td, paths) = setup();
-        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fsutil::ensure_dir_0700(&paths.config_dir).unwrap();
         fs::write(
             paths.draft_file(),
             r#"{
@@ -931,7 +931,7 @@ mod tests {
     #[test]
     fn store_json_wins_over_draft() {
         let (_td, paths) = setup();
-        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fsutil::ensure_dir_0700(&paths.config_dir).unwrap();
         fs::write(
             paths.store_file(),
             r#"{"version":1,"current":{},"providers":{}}"#,
@@ -951,7 +951,7 @@ mod tests {
     #[test]
     fn seed_skips_official_providers() {
         let (_td, paths) = setup();
-        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fsutil::ensure_dir_0700(&paths.config_dir).unwrap();
         fs::write(
             paths.store_file(),
             r#"{"version":1,"current":{},"providers":{"claude-official":{"id":"claude-official","name":"Claude Official","app":"claude","base_url":"","api_key":"","official":true}}}"#,
@@ -964,7 +964,7 @@ mod tests {
     #[test]
     fn seed_dedupes_default_model_against_slots() {
         let (_td, paths) = setup();
-        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fsutil::ensure_dir_0700(&paths.config_dir).unwrap();
         fs::write(
             paths.store_file(),
             r#"{"version":1,"current":{},"providers":{"p":{"id":"p","name":"P","app":"claude","base_url":"u","api_key":"k","model":"shared","slots":{"haiku":"shared","sonnet":"other"}}}}"#,
@@ -980,7 +980,7 @@ mod tests {
     #[test]
     fn seed_runs_only_when_catalog_empty() {
         let (_td, paths) = setup();
-        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fsutil::ensure_dir_0700(&paths.config_dir).unwrap();
         fs::write(
             paths.store_file(),
             r#"{"version":1,"current":{},"providers":{"p":{"id":"p","name":"P","app":"claude","base_url":"u","api_key":"k","model":"ignored","catalog":[{"id":"existing","context_window":12345}]}}}"#,
@@ -997,7 +997,7 @@ mod tests {
     #[test]
     fn seed_skips_subagent_slot() {
         let (_td, paths) = setup();
-        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fsutil::ensure_dir_0700(&paths.config_dir).unwrap();
         fs::write(
             paths.store_file(),
             r#"{"version":1,"current":{},"providers":{"p":{"id":"p","name":"P","app":"claude","base_url":"u","api_key":"k","slots":{"subagent":"agent-only","haiku":"h"}}}}"#,
@@ -1013,7 +1013,7 @@ mod tests {
     #[test]
     fn seed_leaves_non_claude_apps_alone() {
         let (_td, paths) = setup();
-        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fsutil::ensure_dir_0700(&paths.config_dir).unwrap();
         fs::write(
             paths.store_file(),
             r#"{"version":1,"current":{},"providers":{"p":{"id":"p","name":"P","app":"codex","base_url":"u","api_key":"k","model":"gpt-4o"}}}"#,
@@ -1026,7 +1026,7 @@ mod tests {
     #[test]
     fn seed_is_idempotent() {
         let (_td, paths) = setup();
-        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fsutil::ensure_dir_0700(&paths.config_dir).unwrap();
         fs::write(
             paths.store_file(),
             r#"{"version":1,"current":{},"providers":{"p":{"id":"p","name":"P","app":"claude","base_url":"u","api_key":"k","model":"m","slots":{"haiku":"h"}}}}"#,
@@ -1041,7 +1041,7 @@ mod tests {
     #[test]
     fn seed_persists_rewritten_store() {
         let (_td, paths) = setup();
-        fsutil::ensure_dir_0700(&paths.aimux_dir).unwrap();
+        fsutil::ensure_dir_0700(&paths.config_dir).unwrap();
         fs::write(
             paths.store_file(),
             r#"{"version":1,"current":{},"providers":{"p":{"id":"p","name":"P","app":"claude","base_url":"u","api_key":"k","model":"m"}}}"#,
@@ -1085,12 +1085,12 @@ mod tests {
     fn isolation_store_save_does_not_touch_host() {
         let (_td, paths) = setup();
         let host = dirs::home_dir().expect("home");
-        assert_ne!(paths.aimux_dir, host.join(crate::name::DOT_DIR));
+        assert_ne!(paths.config_dir, host.join(crate::name::DOT_DIR));
         Store::empty().save(&paths).unwrap();
         crate::fsutil::panic_if_host_config_path(&paths.store_file());
         assert!(
             !host.join(crate::name::DOT_DIR).join("store.json").exists()
-                || paths.aimux_dir != host.join(crate::name::DOT_DIR)
+                || paths.config_dir != host.join(crate::name::DOT_DIR)
         );
     }
 }

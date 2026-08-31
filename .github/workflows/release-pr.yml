@@ -7,7 +7,7 @@ name: Release PR
 #     → Knope consumes them on the `release` branch (Cargo.toml/Cargo.lock bump,
 #       CHANGELOG.md entry, change files deleted) and force-pushes it
 #     → opens/updates the Release PR (develop → main) and auto-merges it
-#     → tags `aimux/vX.Y.Z` at the merge commit and builds binaries via release.yml
+#     → tags `apmux/vX.Y.Z` at the merge commit and builds binaries via release.yml
 #     → back-merges main into develop so the bump + CHANGELOG sync back
 #
 # `main` is release-only: never push features there. Hotfixes also go through
@@ -73,7 +73,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="$(git show origin/release:Cargo.toml | sed -n 's/^version = "\([^"]*\)".*/\1/p' | head -n1)"
-          TAG="aimux/v${VERSION}"
+          TAG="apmux/v${VERSION}"
           echo "version=${VERSION} tag=${TAG}"
           {
             echo "This PR was created by the release pipeline. Merging it will tag \`${TAG}\` and build installers."
@@ -151,7 +151,7 @@ jobs:
             echo "Could not read version from Cargo.toml"
             exit 1
           fi
-          TAG="aimux/v${VERSION}"
+          TAG="apmux/v${VERSION}"
           SHA="$(git rev-parse HEAD)"
           echo "version=${VERSION} tag=${TAG} sha=${SHA}"
           if git rev-parse "refs/tags/${TAG}" >/dev/null 2>&1 \

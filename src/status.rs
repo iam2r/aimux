@@ -1,4 +1,4 @@
-//! `aimux status` — reconcile the store against each app's live config.
+//! `apmux status` — reconcile the store against each app's live config.
 //!
 //! `current` reports what the store *recorded*; status reads the live files
 //! back ([`AgentAdapter::inspect`]) and compares, so drift introduced by
@@ -16,7 +16,7 @@ pub enum State {
     /// Live points at a known provider (or native login) that differs from
     /// the store's current row, or its fields diverge from store records.
     Drift,
-    /// Live carries an injection aimux cannot attribute to any stored row.
+    /// Live carries an injection apmux cannot attribute to any stored row.
     External,
     /// The app's native login is in charge and the store agrees (official).
     Native,
