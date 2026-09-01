@@ -85,10 +85,11 @@ apmux delete <name> [--app] [--yes]
 apmux backup [--name <name>]
 apmux restore <name> [--yes] [--no-apply]
 apmux backups
-apmux sync setup --url <webdav-root> --username <user> --password <pass>
-apmux sync push [--force]
-apmux sync pull [--force]
-apmux sync status
+apmux sync setup --backend webdav --url <webdav-root> --username <user> --password <pass>
+apmux sync setup --backend gist --token <github-token> [--gist <id或URL>]
+apmux sync push [--backend webdav|gist] [--force]
+apmux sync pull [--backend webdav|gist] [--force]
+apmux sync status [--backend webdav|gist]
 apmux import [--db <path>] [--settings <path>] [--dry-run] [--force]
 apmux update [--version <tag>]
 apmux update --check [--json]
@@ -150,7 +151,7 @@ apmux sync setup \
 
 `--url` / `--username` / `--password` 始终必填。非 localhost 的 `http://` 会被拒绝。Setup 会 MKCOL `{url}/apmux-sync`，并保存**你提交的根 URL**。
 
-TUI：`s` → `e`，填 URL / 用户 / 密码。命名空间单独一行只读（`apmux-sync`）。
+TUI：`s` → `e`（Sync 面板 WebDAV 页），填 URL / 用户 / 密码。命名空间单独一行只读（`apmux-sync`）。
 
 `push` / `pull` 覆盖 store 前会打一份时间戳备份。冲突时拒绝 push，用 `pull` 或 `--force`。`status` 永不打印密码。
 
@@ -158,18 +159,20 @@ TUI：`s` → `e`，填 URL / 用户 / 密码。命名空间单独一行只读�
 
 ## GitHub Gist
 
-同一对 `store.json` + `manifest.json`，改存到**私有 gist** 而不是 WebDAV 目录。仅 CLI（暂无 TUI 页面）。
+同一对 `store.json` + `manifest.json`，改存到**私有 gist** 而不是 WebDAV 目录。
 
 ```bash
-apmux sync gist setup '<github-token>'
-apmux sync gist push [--force]
-apmux sync gist pull [--force]
-apmux sync gist status
+apmux sync setup --backend gist --token '<github-token>' [--gist <id或URL>]
+apmux sync push --backend gist [--force]
+apmux sync pull --backend gist [--force]
+apmux sync status --backend gist
 ```
 
-`setup` 会创建一个以当前本地 store 为初始内容的 gist；或按 description 里的同步格式标记找到已有的 gist——换一台机器也能自动发现同一个 gist。`--gist <id或URL>` 直接指定某个 gist、跳过搜索。
+`setup` 会创建一个以当前本地 store 为初始内容的 gist；或按 description 里的同步格式标记找到已有的 gist——换一台机器也能自动发现同一个 gist。`--gist <id或URL>` 直接指定某个 gist、跳过搜索。每个 `sync` 子命令的 `--backend` 都默认 `webdav`；push/pull/status 同样接受该参数，两个后端可以并存使用。
 
 token 需要 **Gists 读写**权限（建议用只有这一项权限的 fine-grained PAT）。gist 一律创建为私密；`status` 永不打印 token。凭证在 `$APMUX_CONFIG_DIR/gist.json`，权限 `0600`。
+
+TUI：Data 页的 Sync 面板有 WebDAV/Gist 两个 tab（`Tab` 切换）；`e` 设置当前 tab 对应的后端，`p` 推送，`u` 拉取。
 
 `push` / `pull` 行为与 WebDAV 后端完全一致：覆盖前打时间戳备份、冲突拒绝 push、`--force` 强制覆盖。
 

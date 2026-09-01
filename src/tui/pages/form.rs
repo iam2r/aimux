@@ -13,6 +13,7 @@ pub enum FormKind {
     Add { app: AppId },
     Edit { app: AppId },
     SyncSetup,
+    GistSetup,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,6 +59,9 @@ pub struct Form {
     pub snippet: Option<serde_json::Value>,
     pub apply_snippet: bool,
     pub quick_extras: std::collections::BTreeMap<String, String>,
+    /// Setup forms only: a backend config already exists on disk (the token
+    /// / password field then shows "keep current" when left empty).
+    pub has_config: bool,
 }
 
 pub fn for_add(app: AppId) -> Result<Form> {
@@ -81,6 +85,7 @@ pub fn for_add(app: AppId) -> Result<Form> {
         snippet: None,
         apply_snippet: false,
         quick_extras: Default::default(),
+        has_config: false,
     };
     form.refresh_meta_summaries();
     Ok(form)
@@ -115,6 +120,7 @@ pub fn for_edit(provider: &Provider) -> Result<Form> {
         slots: provider.slots.clone(),
         snippet: provider.snippet.clone(),
         apply_snippet: provider.apply_snippet,
+        has_config: false,
         quick_extras: provider
             .extras
             .iter()
@@ -198,6 +204,52 @@ pub fn for_sync_setup(existing: Option<(String, String, String)>) -> Form {
         snippet: None,
         apply_snippet: false,
         quick_extras: Default::default(),
+        has_config: keep,
+    }
+}
+
+/// Gist setup: one token field plus an optional pinned gist id. When a
+/// token is already stored, leaving the token empty keeps it.
+pub fn for_gist_setup(token_stored: bool, has_config: bool) -> Form {
+    Form {
+        kind: FormKind::GistSetup,
+        fields: vec![
+            InputField {
+                key: "token",
+                label: "ui.token",
+                kind: FieldKind::Secret,
+                required: !token_stored,
+                storage: None,
+                value: String::new(),
+                cursor: 0,
+                secret_keep: token_stored,
+                saved_secret: None,
+                readonly: false,
+            }
+            .finish(),
+            InputField {
+                key: "gist",
+                label: "ui.gist_id",
+                kind: FieldKind::Text,
+                required: false,
+                storage: None,
+                value: String::new(),
+                cursor: 0,
+                secret_keep: false,
+                saved_secret: None,
+                readonly: false,
+            }
+            .finish(),
+        ],
+        focus: 0,
+        error: None,
+        edit_id: None,
+        catalog: Vec::new(),
+        slots: Default::default(),
+        snippet: None,
+        apply_snippet: false,
+        quick_extras: Default::default(),
+        has_config,
     }
 }
 
@@ -338,6 +390,7 @@ impl Form {
             FormKind::Add { .. } => t("ui.add_provider"),
             FormKind::Edit { .. } => t("ui.edit_provider"),
             FormKind::SyncSetup => t("ui.sync_setup"),
+            FormKind::GistSetup => t("ui.gist_setup"),
         }
     }
 
@@ -614,6 +667,34 @@ impl Form {
         Ok((url, username, password))
     }
 
+    /// Gist setup submit: `(token, pinned gist id)`. An empty token means
+    /// "keep the stored one" — the caller passes `None` and setup_with
+    /// falls back to the saved credential.
+    pub fn gist_setup(&self) -> Result<(Option<String>, Option<String>)> {
+        let token_f = self
+            .fields
+            .iter()
+            .find(|f| f.key == "token")
+            .ok_or_else(|| anyhow::anyhow!("missing token"))?;
+        let token = if token_f.secret_keep {
+            // Kept secret: none typed; setup_with reuses the stored token.
+            None
+        } else {
+            let v = token_f.value.trim().to_string();
+            if v.is_empty() {
+                None
+            } else {
+                Some(v)
+            }
+        };
+        let gist = field_by_key(&self.fields, "gist").trim().to_string();
+        let gist = if gist.is_empty() { None } else { Some(gist) };
+        if token.is_none() && !self.has_config {
+            bail!("{}", t("form.token_empty"));
+        }
+        Ok((token, gist))
+    }
+
     fn check_required(&self) -> Result<()> {
         for f in &self.fields {
             if f.storage.is_none() {
@@ -686,7 +767,7 @@ impl Form {
     fn refresh_models_summary(&mut self) {
         let app = match self.kind {
             FormKind::Add { app } | FormKind::Edit { app } => app,
-            FormKind::SyncSetup => return,
+            FormKind::SyncSetup | FormKind::GistSetup => return,
         };
         let model = self.model();
         let (label, value) = models_summary(app, &self.catalog, &self.slots, model.as_deref());
@@ -699,7 +780,7 @@ impl Form {
     pub fn refresh_quick_summary(&mut self) {
         let app = match self.kind {
             FormKind::Add { app } | FormKind::Edit { app } => app,
-            FormKind::SyncSetup => return,
+            FormKind::SyncSetup | FormKind::GistSetup => return,
         };
         let items = adapter::get(app).map(|a| a.quick_items()).unwrap_or(&[]);
         let Some(f) = self.fields.iter_mut().find(|f| f.key == "snippet") else {
@@ -727,7 +808,7 @@ impl Form {
     pub fn fetch_creds(&self) -> Option<(String, String, Option<String>)> {
         let app = match self.kind {
             FormKind::Add { app } | FormKind::Edit { app } => app,
-            FormKind::SyncSetup => return None,
+            FormKind::SyncSetup | FormKind::GistSetup => return None,
         };
         let url = self
             .fields
@@ -778,7 +859,7 @@ impl Form {
             .collect();
         let app = match self.kind {
             FormKind::Add { app } | FormKind::Edit { app } => Some(app),
-            FormKind::SyncSetup => None,
+            FormKind::SyncSetup | FormKind::GistSetup => None,
         };
         if let Some(app) = app {
             if let Ok(adapter) = adapter::get(app) {
