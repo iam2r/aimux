@@ -9,7 +9,7 @@ use crate::adapter::FieldKind;
 use crate::i18n::{t, tf};
 use crate::mask;
 
-use super::app::{App, Overlay, Page, SyncKind};
+use super::app::{App, Overlay, Page, SyncKind, SyncTab};
 use super::edit;
 use super::help;
 use super::pages::form;
@@ -200,33 +200,65 @@ fn draw_backups(frame: &mut Frame, app: &mut App, area: Rect, theme: Theme) {
 }
 
 fn draw_sync(frame: &mut Frame, app: &App, area: Rect, theme: Theme) {
-    let body = match &app.sync_local {
-        None => t("ui.webdav_unconfigured").to_string(),
-        Some(s) => {
-            let last = if s.last_sync_at.is_empty() {
-                "-"
-            } else {
-                s.last_sync_at.as_str()
-            };
-            format!(
-                "url: {}\nnamespace: {}\nusername: {}\nlast_pulled: {}\nlast_pushed: {}\nlast_sync_at: {last}",
-                crate::webdav::redact_url(&s.url),
-                crate::webdav::NAMESPACE,
-                s.username,
-                s.last_pulled_sha256,
-                s.last_pushed_sha256
-            )
+    // Tabs live in the panel title row: "Sync WebDAV|Gist".
+    let tab_style = |on: bool| {
+        if on {
+            theme.selected()
+        } else {
+            theme.fg(theme.dim)
         }
+    };
+    let title = Line::from(vec![
+        Span::styled(format!("{} ", t("ui.sync")), theme.accent()),
+        Span::styled(
+            t("ui.backend_webdav").to_string(),
+            tab_style(app.sync_tab == SyncTab::Webdav),
+        ),
+        Span::styled("|", theme.fg(theme.dim)),
+        Span::styled(
+            t("ui.backend_gist").to_string(),
+            tab_style(app.sync_tab == SyncTab::Gist),
+        ),
+    ]);
+    let body = match app.sync_tab {
+        SyncTab::Webdav => match &app.sync_local {
+            None => t("ui.webdav_unconfigured").to_string(),
+            Some(s) => {
+                let last = if s.last_sync_at.is_empty() {
+                    "-"
+                } else {
+                    s.last_sync_at.as_str()
+                };
+                format!(
+                    "url: {}\nnamespace: {}\nusername: {}\nlast_pulled: {}\nlast_pushed: {}\nlast_sync_at: {last}",
+                    crate::webdav::redact_url(&s.url),
+                    crate::webdav::NAMESPACE,
+                    s.username,
+                    s.last_pulled_sha256,
+                    s.last_pushed_sha256
+                )
+            }
+        },
+        SyncTab::Gist => match &app.gist_local {
+            None => t("ui.gist_unconfigured").to_string(),
+            Some(g) => {
+                let last = if g.last_sync_at.is_empty() {
+                    "-"
+                } else {
+                    g.last_sync_at.as_str()
+                };
+                format!(
+                    "gist: https://gist.github.com/{}\nlast_pulled: {}\nlast_pushed: {}\nlast_sync_at: {last}",
+                    g.gist_id, g.last_pulled_sha256, g.last_pushed_sha256
+                )
+            }
+        },
     };
     frame.render_widget(
         Paragraph::new(body)
             .wrap(Wrap { trim: false })
             .style(theme.fg(theme.fg))
-            .block(
-                Block::bordered()
-                    .border_style(theme.accent())
-                    .title(Span::styled(t("ui.sync"), theme.accent())),
-            ),
+            .block(Block::bordered().border_style(theme.accent()).title(title)),
         area,
     );
 }

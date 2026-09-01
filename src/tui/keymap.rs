@@ -29,6 +29,7 @@ pub enum Action {
     ToggleSetting,
     Back,
     Restore,
+    SyncTab,
     SyncPush,
     SyncPull,
     SyncSetup,
@@ -72,6 +73,8 @@ pub fn map_key(key: KeyEvent, mode: KeyMode) -> Action {
         },
         KeyCode::Char('d') | KeyCode::Char('D') if mode == KeyMode::List => Action::Delete,
         KeyCode::Char('b') | KeyCode::Char('B') if mode == KeyMode::Data => Action::Backup,
+        // Data page: Tab switches the Sync panel between WebDAV and Gist.
+        KeyCode::Tab | KeyCode::BackTab if mode == KeyMode::Data => Action::SyncTab,
         KeyCode::Char('r') | KeyCode::Char('R') => Action::OpenData,
         KeyCode::Char('s') | KeyCode::Char('S')
             if mode != KeyMode::Data && mode != KeyMode::Settings =>
@@ -238,6 +241,13 @@ const HINTS: &[HintRow] = &[
         group: Some("Sync"),
         mode: KeyMode::Data,
         checks: &[(KeyCode::Char('e'), Action::SyncSetup)],
+    },
+    HintRow {
+        display: "Tab",
+        label: "hint.sync_tab",
+        group: None,
+        mode: KeyMode::Data,
+        checks: &[(KeyCode::Tab, Action::SyncTab)],
     },
     HintRow {
         display: "p",
@@ -474,6 +484,14 @@ mod tests {
             map_key(key(KeyCode::Char('e')), KeyMode::Data),
             Action::SyncSetup
         );
+        assert_eq!(map_key(key(KeyCode::Tab), KeyMode::Data), Action::SyncTab);
+        assert_eq!(
+            map_key(key(KeyCode::BackTab), KeyMode::Data),
+            Action::SyncTab
+        );
+        // Tab only switches the sync tab on the Data page; on Providers it
+        // still moves between apps.
+        assert_eq!(map_key(key(KeyCode::Tab), KeyMode::List), Action::NextApp);
         assert_eq!(
             map_key(key(KeyCode::Char('p')), KeyMode::List),
             Action::None

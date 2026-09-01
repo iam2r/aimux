@@ -207,54 +207,57 @@ enum Commands {
     },
 }
 
-#[derive(Debug, Subcommand)]
-enum SyncAction {
-    Setup {
-        #[arg(long)]
-        url: String,
-        #[arg(long)]
-        username: String,
-        #[arg(long)]
-        password: String,
-    },
-    Push {
-        #[arg(long)]
-        force: bool,
-    },
-    Pull {
-        #[arg(long)]
-        force: bool,
-    },
-    Status,
-    /// Cloud sync via GitHub Gist
-    Gist {
-        #[command(subcommand)]
-        action: GistAction,
-    },
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum SyncBackend {
+    Webdav,
+    Gist,
 }
 
 #[derive(Debug, Subcommand)]
-enum GistAction {
-    /// Save a GitHub token and create (or find) the sync gist
+enum SyncAction {
+    /// Configure a sync backend (WebDAV by default, or GitHub Gist)
     Setup {
-        /// GitHub token with Gists read/write access
-        token: String,
-        /// Existing gist id or URL; skips the marker search
+        /// Which backend to configure
+        #[arg(long, value_enum, default_value = "webdav")]
+        backend: SyncBackend,
+        /// WebDAV: server root URL (files go under the built-in namespace)
+        #[arg(long)]
+        url: Option<String>,
+        /// WebDAV: account name
+        #[arg(long)]
+        username: Option<String>,
+        /// WebDAV: account password or app token
+        #[arg(long)]
+        password: Option<String>,
+        /// Gist: GitHub token with Gists read/write access
+        #[arg(long)]
+        token: Option<String>,
+        /// Gist: existing gist id or URL; skips the marker search
         #[arg(long)]
         gist: Option<String>,
     },
-    /// Upload the local store to the gist
+    /// Upload the local store to the remote
     Push {
+        /// Which backend to operate on
+        #[arg(long, value_enum, default_value = "webdav")]
+        backend: SyncBackend,
         #[arg(long)]
         force: bool,
     },
-    /// Download the gist store and apply it
+    /// Download the remote store and apply it
     Pull {
+        /// Which backend to operate on
+        #[arg(long, value_enum, default_value = "webdav")]
+        backend: SyncBackend,
         #[arg(long)]
         force: bool,
     },
     /// Show local vs remote sync state
-    Status,
+    Status {
+        /// Which backend to inspect
+        #[arg(long, value_enum, default_value = "webdav")]
+        backend: SyncBackend,
+    },
 }
 
 fn main() {
@@ -376,18 +379,46 @@ fn run_command(cmd: Commands) -> Result<()> {
         Commands::Backups => cmd_backups(),
         Commands::Sync { action } => match action {
             SyncAction::Setup {
+                backend,
                 url,
                 username,
                 password,
-            } => cmd_sync_setup(url, username, password),
-            SyncAction::Push { force } => cmd_sync_push(force),
-            SyncAction::Pull { force } => cmd_sync_pull(force),
-            SyncAction::Status => cmd_sync_status(),
-            SyncAction::Gist { action } => match action {
-                GistAction::Setup { token, gist } => cmd_gist_setup(token, gist),
-                GistAction::Push { force } => cmd_gist_push(force),
-                GistAction::Pull { force } => cmd_gist_pull(force),
-                GistAction::Status => cmd_gist_status(),
+                token,
+                gist,
+            } => match backend {
+                SyncBackend::Webdav => cmd_sync_setup(
+                    url.ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "--backend webdav requires --url, --username and --password"
+                        )
+                    })?,
+                    username.ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "--backend webdav requires --url, --username and --password"
+                        )
+                    })?,
+                    password.ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "--backend webdav requires --url, --username and --password"
+                        )
+                    })?,
+                ),
+                SyncBackend::Gist => cmd_gist_setup(
+                    token.ok_or_else(|| anyhow::anyhow!("--backend gist requires --token"))?,
+                    gist,
+                ),
+            },
+            SyncAction::Push { backend, force } => match backend {
+                SyncBackend::Webdav => cmd_sync_push(force),
+                SyncBackend::Gist => cmd_gist_push(force),
+            },
+            SyncAction::Pull { backend, force } => match backend {
+                SyncBackend::Webdav => cmd_sync_pull(force),
+                SyncBackend::Gist => cmd_gist_pull(force),
+            },
+            SyncAction::Status { backend } => match backend {
+                SyncBackend::Webdav => cmd_sync_status(),
+                SyncBackend::Gist => cmd_gist_status(),
             },
         },
         Commands::Import {
@@ -951,17 +982,46 @@ mod tests {
 
     #[test]
     fn sync_setup_requires_url() {
-        let err = Cli::try_parse_from([
-            crate::name::NAME,
-            "sync",
-            "setup",
-            "--username",
-            "u",
-            "--password",
-            "p",
-        ])
+        // Missing --url parses (it's Option) but is refused before any write.
+        let err = (|| -> anyhow::Result<()> {
+            match Cli::try_parse_from([
+                crate::name::NAME,
+                "sync",
+                "setup",
+                "--username",
+                "u",
+                "--password",
+                "p",
+            ])
+            .unwrap()
+            .command
+            {
+                Some(Commands::Sync {
+                    action:
+                        SyncAction::Setup {
+                            backend,
+                            url,
+                            username,
+                            password,
+                            ..
+                        },
+                }) => {
+                    assert_eq!(backend, SyncBackend::Webdav);
+                    cmd_sync_setup(
+                        url.ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "--backend webdav requires --url, --username and --password"
+                            )
+                        })?,
+                        username.unwrap(),
+                        password.unwrap(),
+                    )
+                }
+                other => panic!("unexpected {other:?}"),
+            }
+        })()
         .unwrap_err();
-        assert!(err.to_string().contains("url") || err.to_string().contains("required"));
+        assert!(err.to_string().contains("--url"), "{err}");
     }
 
     #[test]
@@ -1118,21 +1178,29 @@ mod tests {
         assert!(matches!(
             cli.command,
             Some(Commands::Sync {
-                action: SyncAction::Push { force: true }
+                action: SyncAction::Push {
+                    backend: SyncBackend::Webdav,
+                    force: true
+                }
             })
         ));
         let cli = Cli::try_parse_from([crate::name::NAME, "sync", "pull"]).unwrap();
         assert!(matches!(
             cli.command,
             Some(Commands::Sync {
-                action: SyncAction::Pull { force: false }
+                action: SyncAction::Pull {
+                    backend: SyncBackend::Webdav,
+                    force: false
+                }
             })
         ));
         let cli = Cli::try_parse_from([crate::name::NAME, "sync", "status"]).unwrap();
         assert!(matches!(
             cli.command,
             Some(Commands::Sync {
-                action: SyncAction::Status
+                action: SyncAction::Status {
+                    backend: SyncBackend::Webdav
+                }
             })
         ));
         let cli = Cli::try_parse_from([
@@ -1150,7 +1218,10 @@ mod tests {
         assert!(matches!(
             cli.command,
             Some(Commands::Sync {
-                action: SyncAction::Setup { .. }
+                action: SyncAction::Setup {
+                    backend: SyncBackend::Webdav,
+                    ..
+                }
             })
         ));
         assert!(Cli::try_parse_from([
@@ -1166,6 +1237,149 @@ mod tests {
             "--jianguoyun",
         ])
         .is_err());
+    }
+
+    #[test]
+    fn sync_setup_backend_shapes() {
+        // Explicit webdav backend with the same flags.
+        let cli = Cli::try_parse_from([
+            crate::name::NAME,
+            "sync",
+            "setup",
+            "--backend",
+            "webdav",
+            "--url",
+            "https://webdav.example.com/",
+            "--username",
+            "u",
+            "--password",
+            "p",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Sync {
+                action: SyncAction::Setup {
+                    backend: SyncBackend::Webdav,
+                    ..
+                }
+            })
+        ));
+        // Gist backend with token + optional pinned gist.
+        let cli = Cli::try_parse_from([
+            crate::name::NAME,
+            "sync",
+            "setup",
+            "--backend",
+            "gist",
+            "--token",
+            "ghp_x",
+        ])
+        .unwrap();
+        match cli.command {
+            Some(Commands::Sync {
+                action: SyncAction::Setup { backend, token, .. },
+            }) => {
+                assert_eq!(backend, SyncBackend::Gist);
+                assert_eq!(token.as_deref(), Some("ghp_x"));
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        let cli = Cli::try_parse_from([
+            crate::name::NAME,
+            "sync",
+            "setup",
+            "--backend",
+            "gist",
+            "--token",
+            "ghp_x",
+            "--gist",
+            "https://gist.github.com/owner/abc123def456abc123de",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Sync {
+                action: SyncAction::Setup {
+                    backend: SyncBackend::Gist,
+                    ..
+                }
+            })
+        ));
+        // push/pull/status route by --backend too.
+        let cli =
+            Cli::try_parse_from([crate::name::NAME, "sync", "push", "--backend", "gist"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Sync {
+                action: SyncAction::Push {
+                    backend: SyncBackend::Gist,
+                    ..
+                }
+            })
+        ));
+        let cli = Cli::try_parse_from([crate::name::NAME, "sync", "status", "--backend", "gist"])
+            .unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Sync {
+                action: SyncAction::Status {
+                    backend: SyncBackend::Gist
+                }
+            })
+        ));
+        // Unknown backend value is rejected.
+        assert!(
+            Cli::try_parse_from([crate::name::NAME, "sync", "push", "--backend", "ftp"]).is_err()
+        );
+    }
+
+    #[test]
+    fn sync_setup_rejects_cross_backend_flags() {
+        // webdav flags without --url are a runtime error (clap parses fine),
+        // but gist flags on the webdav path must be refused before any write.
+        let cli = Cli::try_parse_from([
+            crate::name::NAME,
+            "sync",
+            "setup",
+            "--url",
+            "https://webdav.example.com/",
+            "--username",
+            "u",
+            "--password",
+            "p",
+            "--token",
+            "ghp_x",
+        ])
+        .unwrap();
+        match cli.command {
+            Some(Commands::Sync {
+                action:
+                    SyncAction::Setup {
+                        backend,
+                        token,
+                        url,
+                        ..
+                    },
+            }) => {
+                assert_eq!(backend, SyncBackend::Webdav);
+                assert!(url.is_some());
+                assert_eq!(token.as_deref(), Some("ghp_x"));
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+        // gist setup without --token fails at runtime with a clear message.
+        let cli =
+            Cli::try_parse_from([crate::name::NAME, "sync", "setup", "--backend", "gist"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Some(Commands::Sync {
+                action: SyncAction::Setup {
+                    backend: SyncBackend::Gist,
+                    ..
+                }
+            })
+        ));
     }
 
     #[test]

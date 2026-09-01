@@ -61,6 +61,7 @@ fn page_sheet(mode: super::keymap::KeyMode, footnote: Option<&str>) -> String {
 fn form_help(kind: FormKind) -> String {
     match kind {
         FormKind::SyncSetup => t("help.sync_setup").into(),
+        FormKind::GistSetup => t("help.gist_setup").into(),
         FormKind::Add { .. } | FormKind::Edit { .. } => {
             let keep = if matches!(kind, FormKind::Edit { .. }) {
                 t("help.form_keep")

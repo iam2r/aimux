@@ -7,6 +7,7 @@ use ratatui::widgets::ListState;
 use crate::adapter::{self, ApplyOutcome};
 use crate::backup;
 use crate::cloud;
+use crate::gist;
 use crate::i18n::{t, tf};
 use crate::paths::Paths;
 use crate::settings::{self, Settings};
@@ -64,6 +65,12 @@ pub enum SyncKind {
     Pull,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncTab {
+    Webdav,
+    Gist,
+}
+
 pub struct App {
     pub paths: Paths,
     pub store: Store,
@@ -78,6 +85,10 @@ pub struct App {
     pub backup_sel: usize,
     pub backup_state: ListState,
     pub sync_local: Option<cloud::LocalSync>,
+    pub gist_local: Option<gist::GistLocal>,
+    /// Which sync backend the Data page's Sync panel shows; the e/p/u keys
+    /// act on whichever tab is active.
+    pub sync_tab: SyncTab,
     pub settings: Settings,
     pub settings_sel: usize,
     pub settings_state: ListState,
@@ -95,6 +106,7 @@ pub struct App {
 impl App {
     pub fn new(paths: Paths, store: Store) -> Self {
         let settings = Settings::load(&paths).unwrap_or_default();
+        let gist_local = gist::local_gist(&paths);
         let mut app = Self {
             paths,
             store,
@@ -109,6 +121,8 @@ impl App {
             backup_sel: 0,
             backup_state: ListState::default(),
             sync_local: None,
+            gist_local,
+            sync_tab: SyncTab::Webdav,
             settings,
             settings_sel: 0,
             settings_state: ListState::default(),
@@ -363,6 +377,7 @@ impl App {
                 self.page = Page::Providers;
             }
             Action::Restore => self.open_restore(),
+            Action::SyncTab => self.toggle_sync_tab(),
             Action::SyncPush => self.open_sync_confirm(SyncKind::Push),
             Action::SyncPull => self.open_sync_confirm(SyncKind::Pull),
             Action::SyncSetup => self.open_sync_setup(),
@@ -447,7 +462,7 @@ impl App {
         };
         let app = match form.kind {
             form::FormKind::Add { app } | form::FormKind::Edit { app } => app,
-            form::FormKind::SyncSetup => {
+            form::FormKind::SyncSetup | form::FormKind::GistSetup => {
                 self.overlay = Overlay::Form(form);
                 return;
             }
@@ -465,7 +480,7 @@ impl App {
         };
         let app = match form.kind {
             form::FormKind::Add { app } | form::FormKind::Edit { app } => app,
-            form::FormKind::SyncSetup => {
+            form::FormKind::SyncSetup | form::FormKind::GistSetup => {
                 self.overlay = Overlay::Form(form);
                 return;
             }
@@ -655,6 +670,7 @@ impl App {
         self.page = Page::Data;
         self.refresh_backups();
         self.sync_local = cloud::local_sync(&self.paths);
+        self.gist_local = gist::local_gist(&self.paths);
     }
 
     fn refresh_backups(&mut self) {
@@ -681,23 +697,64 @@ impl App {
 
     fn open_sync_setup(&mut self) {
         self.help = false;
-        self.overlay = Overlay::Form(form::for_sync_setup(cloud::credentials(&self.paths)));
+        match self.sync_tab {
+            SyncTab::Webdav => {
+                self.overlay = Overlay::Form(form::for_sync_setup(cloud::credentials(&self.paths)));
+            }
+            SyncTab::Gist => {
+                let token_stored = self
+                    .gist_local
+                    .as_ref()
+                    .is_some_and(|g| !g.gist_id.is_empty());
+                self.overlay = Overlay::Form(form::for_gist_setup(
+                    token_stored,
+                    self.paths.gist_file().is_file(),
+                ));
+            }
+        }
+    }
+
+    fn toggle_sync_tab(&mut self) {
+        self.sync_tab = match self.sync_tab {
+            SyncTab::Webdav => SyncTab::Gist,
+            SyncTab::Gist => SyncTab::Webdav,
+        };
     }
 
     fn open_sync_confirm(&mut self, kind: SyncKind) {
         if self.sync_rx.is_some() || matches!(self.overlay, Overlay::Syncing) {
             return;
         }
-        let Some(local) = cloud::local_sync(&self.paths) else {
-            self.status = t("status.sync_unconfigured").into();
-            return;
-        };
-        self.help = false;
-        self.overlay = Overlay::ConfirmSync {
-            kind,
-            url: webdav::redact_url(&local.url),
-            last_sync_at: local.last_sync_at,
-        };
+        match self.sync_tab {
+            SyncTab::Webdav => {
+                let Some(local) = cloud::local_sync(&self.paths) else {
+                    self.status = t("status.sync_unconfigured").into();
+                    return;
+                };
+                self.help = false;
+                self.overlay = Overlay::ConfirmSync {
+                    kind,
+                    url: webdav::redact_url(&local.url),
+                    last_sync_at: local.last_sync_at,
+                };
+            }
+            SyncTab::Gist => {
+                let Some(local) = gist::local_gist(&self.paths) else {
+                    self.status = t("status.gist_unconfigured").into();
+                    return;
+                };
+                if local.gist_id.is_empty() {
+                    self.status = t("status.gist_unconfigured").into();
+                    return;
+                }
+                self.help = false;
+                self.overlay = Overlay::ConfirmSync {
+                    kind,
+                    url: format!("https://gist.github.com/{}", local.gist_id),
+                    last_sync_at: local.last_sync_at,
+                };
+            }
+        }
     }
 
     fn confirm_yes(&mut self) {
@@ -728,9 +785,11 @@ impl App {
                 }
             }
             Overlay::ConfirmSync { kind, .. } => {
-                let job = match kind {
-                    SyncKind::Push => Job::Push,
-                    SyncKind::Pull => Job::Pull,
+                let job = match (self.sync_tab, kind) {
+                    (SyncTab::Webdav, SyncKind::Push) => Job::Push,
+                    (SyncTab::Webdav, SyncKind::Pull) => Job::Pull,
+                    (SyncTab::Gist, SyncKind::Push) => Job::GistPush,
+                    (SyncTab::Gist, SyncKind::Pull) => Job::GistPull,
                 };
                 self.overlay = Overlay::None;
                 self.start_job(job);
@@ -802,6 +861,28 @@ impl App {
                     password,
                 });
             }
+            form::FormKind::GistSetup => {
+                let values = match overlay_form(&self.overlay).and_then(Form::gist_setup) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        set_form_error(&mut self.overlay, e);
+                        return;
+                    }
+                };
+                let form = match std::mem::replace(&mut self.overlay, Overlay::None) {
+                    Overlay::Form(f) => f,
+                    other => {
+                        self.overlay = other;
+                        return;
+                    }
+                };
+                self.setup_form = Some(form);
+                let (token, gist_id) = values;
+                self.start_job(Job::GistSetup {
+                    token,
+                    gist: gist_id,
+                });
+            }
         }
     }
 
@@ -811,7 +892,7 @@ impl App {
         };
         let app = match form.kind {
             form::FormKind::Add { app } | form::FormKind::Edit { app } => app,
-            form::FormKind::SyncSetup => return,
+            form::FormKind::SyncSetup | form::FormKind::GistSetup => return,
         };
         let Some((url, key, protocol)) = form.fetch_creds() else {
             return;
@@ -1104,9 +1185,20 @@ impl App {
         if self.sync_rx.is_some() || matches!(self.overlay, Overlay::Syncing) {
             return;
         }
-        if matches!(job, Job::Push | Job::Pull) && cloud::local_sync(&self.paths).is_none() {
-            self.status = t("status.sync_unconfigured").into();
-            return;
+        match job {
+            Job::Push | Job::Pull if cloud::local_sync(&self.paths).is_none() => {
+                self.status = t("status.sync_unconfigured").into();
+                return;
+            }
+            Job::GistPush | Job::GistPull => {
+                let configured =
+                    gist::local_gist(&self.paths).is_some_and(|g| !g.gist_id.is_empty());
+                if !configured {
+                    self.status = t("status.gist_unconfigured").into();
+                    return;
+                }
+            }
+            _ => {}
         }
         self.help = false;
         self.overlay = Overlay::Syncing;
@@ -1315,6 +1407,21 @@ impl App {
                     }
                 }
             },
+            Outcome::GistSetup(r) => match r {
+                Ok(id) => {
+                    self.setup_form = None;
+                    self.gist_local = gist::local_gist(&self.paths);
+                    self.status = tf("status.gist_configured", &[&id]);
+                }
+                Err(e) => {
+                    if let Some(mut form) = self.setup_form.take() {
+                        form.error = Some(e.to_string());
+                        self.overlay = Overlay::Form(form);
+                    } else {
+                        self.status = tf("status.setup_failed", &[&format!("{e:#}")]);
+                    }
+                }
+            },
             Outcome::Push(r) => match r {
                 Ok(sha) => {
                     self.sync_local = cloud::local_sync(&self.paths);
@@ -1325,10 +1432,26 @@ impl App {
                 }
                 Err(e) => self.status = tf("status.push_failed", &[&format!("{e:#}")]),
             },
+            Outcome::GistPush(r) => match r {
+                Ok(sha) => {
+                    self.gist_local = gist::local_gist(&self.paths);
+                    self.status = tf("status.pushed", &[&sha]);
+                }
+                Err(e) => self.status = tf("status.push_failed", &[&format!("{e:#}")]),
+            },
             Outcome::Pull(r) => {
                 // Disk (store.json / webdav.json) may already be updated when
                 // re-apply fails; always refresh TUI memory like restore.
                 self.sync_local = cloud::local_sync(&self.paths);
+                match r {
+                    Ok(sha) => self.finish_disk_sync(tf("status.pulled", &[&sha])),
+                    Err(e) => self.finish_disk_sync(tf("status.pull_failed", &[&format!("{e:#}")])),
+                }
+            }
+            Outcome::GistPull(r) => {
+                // Same as the WebDAV pull: disk may already carry the new
+                // store when re-apply failed; always refresh TUI memory.
+                self.gist_local = gist::local_gist(&self.paths);
                 match r {
                     Ok(sha) => self.finish_disk_sync(tf("status.pulled", &[&sha])),
                     Err(e) => self.finish_disk_sync(tf("status.pull_failed", &[&format!("{e:#}")])),
@@ -2390,6 +2513,111 @@ mod tests {
             overlay_label(&app.overlay)
         );
         assert!(!app.status.is_empty());
+    }
+
+    #[test]
+    fn gist_tab_switches_panel_and_routing() {
+        let td = tempfile::tempdir().unwrap();
+        let paths = Paths::for_test(td.path());
+        let mut app = sample(paths);
+        app.handle_action(Action::OpenData);
+        assert_eq!(app.sync_tab, SyncTab::Webdav);
+
+        // Tab flips the panel between WebDAV and Gist.
+        app.handle_action(Action::SyncTab);
+        assert_eq!(app.sync_tab, SyncTab::Gist);
+        app.handle_action(Action::SyncTab);
+        assert_eq!(app.sync_tab, SyncTab::Webdav);
+
+        // On the Gist tab, e opens the Gist setup form.
+        app.handle_action(Action::SyncTab);
+        app.handle_action(Action::SyncSetup);
+        let Overlay::Form(form) = &app.overlay else {
+            panic!(
+                "expected gist setup form, got {:?}",
+                overlay_label(&app.overlay)
+            );
+        };
+        assert_eq!(form.kind, form::FormKind::GistSetup);
+        assert!(form.fields.iter().any(|f| f.key == "token"));
+        assert!(form.fields.iter().any(|f| f.key == "gist"));
+        app.handle_key(key(KeyCode::Esc)); // cancel
+
+        // p/u on the Gist tab refuse to run while unconfigured.
+        app.handle_action(Action::SyncPush);
+        assert!(
+            !matches!(app.overlay, Overlay::ConfirmSync { .. } | Overlay::Syncing),
+            "gist push must be refused when unconfigured: {:?}",
+            overlay_label(&app.overlay)
+        );
+        app.handle_action(Action::SyncPull);
+        assert!(
+            !matches!(app.overlay, Overlay::ConfirmSync { .. } | Overlay::Syncing),
+            "gist pull must be refused when unconfigured: {:?}",
+            overlay_label(&app.overlay)
+        );
+
+        // Tab back to WebDAV: e opens the WebDAV setup form again.
+        app.handle_action(Action::SyncTab);
+        app.handle_action(Action::SyncSetup);
+        let Overlay::Form(form) = &app.overlay else {
+            panic!(
+                "expected webdav setup form, got {:?}",
+                overlay_label(&app.overlay)
+            );
+        };
+        assert_eq!(form.kind, form::FormKind::SyncSetup);
+    }
+
+    #[test]
+    fn gist_setup_form_submits_token_and_gist() {
+        let td = tempfile::tempdir().unwrap();
+        let paths = Paths::for_test(td.path());
+        let mut app = sample(paths);
+        app.handle_action(Action::OpenData);
+        app.handle_action(Action::SyncTab);
+        app.handle_action(Action::SyncSetup);
+        {
+            let Overlay::Form(form) = &mut app.overlay else {
+                panic!("gist setup form");
+            };
+            let token = form.fields.iter_mut().find(|f| f.key == "token").unwrap();
+            token.secret_keep = false;
+            token.value = "ghp_t".into();
+            let gist = form.fields.iter_mut().find(|f| f.key == "gist").unwrap();
+            gist.value = "https://gist.github.com/owner/abc123def456abc123de".into();
+        }
+        // Submitting spawns a network job against the real API; assert only
+        // that the form hands off to the Syncing overlay with the right kind.
+        app.submit_form();
+        assert!(
+            matches!(app.overlay, Overlay::Syncing),
+            "expected Syncing after gist setup submit, got {:?}",
+            overlay_label(&app.overlay)
+        );
+        // Let the job finish in the background (it will fail against the
+        // network-less endpoint or succeed creating nothing — either way the
+        // TUI must settle: a status flash, or the setup form restored with
+        // the error shown inside it).
+        let start = std::time::Instant::now();
+        while app.is_syncing() && start.elapsed() < std::time::Duration::from_secs(8) {
+            if app.poll_sync() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(!app.is_syncing(), "job must settle: {}", app.status);
+        let settled = !app.status.is_empty()
+            || matches!(
+                &app.overlay,
+                Overlay::Form(f) if f.error.is_some() && f.kind == form::FormKind::GistSetup
+            );
+        assert!(
+            settled,
+            "expected status or form error, got {:?} / {:?}",
+            overlay_label(&app.overlay),
+            app.status
+        );
     }
 
     fn overlay_label(overlay: &Overlay) -> String {
