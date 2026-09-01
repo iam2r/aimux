@@ -115,12 +115,18 @@ fn en(key: &'static str) -> &'static str {
         "ui.timestamp" => "timestamp",
         "ui.named" => "named",
         "ui.webdav_unconfigured" => "WebDAV is not configured. Press e to open setup.",
+        "ui.gist_unconfigured" => "Gist sync is not configured. Press e to add a token.",
         "ui.form_hint" => "Tab / ↑↓ fields  Space cycle/fetch/open  Enter submit  Esc cancel",
         "ui.confirm_hint" => "y confirm  n/Esc cancel",
         "ui.keep_previous" => "(keep current)",
         "ui.namespace" => "Namespace",
         "ui.username" => "Username",
         "ui.password" => "Password",
+        "ui.token" => "Token",
+        "ui.gist_id" => "Gist ID",
+        "ui.gist_setup" => "Gist setup",
+        "ui.backend_webdav" => "WebDAV",
+        "ui.backend_gist" => "Gist",
         "ui.add_provider" => "Add provider",
         "ui.edit_provider" => "Edit provider",
         "ui.sync_setup" => "Sync setup",
@@ -185,6 +191,7 @@ fn en(key: &'static str) -> &'static str {
         "hint.toggle" => "change value",
         "hint.snapshot" => "snapshot",
         "hint.setup" => "sync setup",
+        "hint.sync_tab" => "switch WebDAV/Gist",
         "hint.push" => "push",
         "hint.pull" => "pull",
         "hint.restore" => "restore (asks first)",
@@ -236,6 +243,8 @@ fn en(key: &'static str) -> &'static str {
         "status.sync_unconfigured" => "Sync isn't set up yet. Press e to add WebDAV.",
         "status.sync_interrupted" => "Sync interrupted",
         "status.sync_configured" => "Sync configured",
+        "status.gist_configured" => "Gist configured: {0}",
+        "status.gist_unconfigured" => "Gist sync isn't set up yet. Press e to add a token.",
         "status.setup_failed" => "Setup failed: {0}",
         "status.pushed" => "Pushed {0}",
         "status.push_failed" => "Push failed: {0}",
@@ -255,6 +264,7 @@ fn en(key: &'static str) -> &'static str {
         "form.url_empty" => "URL must not be empty",
         "form.user_empty" => "Username must not be empty",
         "form.pass_empty" => "Password must not be empty",
+        "form.token_empty" => "Token must not be empty",
 
         "settings.language" => "Language",
         "settings.apps_mode" => "App detection",
@@ -288,14 +298,15 @@ Backups:\n\
 j k or ↑ ↓           move\n\
 Enter                restore (asks first)\n\
 b                    snapshot now\n\
-Sync:\n\
-e                    set URL / user / password\n\
+Sync (Tab switches WebDAV / Gist):\n\
+e                    set up the active backend\n\
 p                    push\n\
 u                    pull\n\
 Esc                  back to the list\n\
 q                    quit\n\
 \n\
-Files go under the built-in namespace apmux-sync (shown, not editable).",
+WebDAV files go under the built-in namespace apmux-sync (shown, not editable).\n\
+Gist keeps the same files in one secret gist; it never pushes on setup.",
         "help.settings" => "\
 Settings\n\n\
 j k or ↑ ↓           move\n\
@@ -312,6 +323,15 @@ Enter                submit (creates the apmux-sync folder under this URL)\n\
 Esc                  cancel\n\n\
 Leave the password empty to keep the current secret.\n\
 Namespace apmux-sync is built-in and cannot be edited.",
+        "help.gist_setup" => "\
+Gist setup\n\n\
+Tab / ↑ ↓            move between fields\n\
+Enter                submit (finds or creates your secret sync gist)\n\
+Esc                  cancel\n\n\
+The token needs Gists read/write access.\n\
+Leave the token empty to keep the stored one.\n\
+Gist ID is optional: it pins an existing gist\n\
+(id or URL) and skips the marker search.",
         "help.form" => "\
 Form\n\n\
 Tab / ↑ ↓            move between fields\n\
@@ -382,12 +402,18 @@ fn zh(key: &'static str) -> Option<&'static str> {
         "ui.timestamp" => "时间戳",
         "ui.named" => "命名",
         "ui.webdav_unconfigured" => "尚未配置 WebDAV。按 e 打开设置。",
+        "ui.gist_unconfigured" => "尚未配置 Gist 同步。按 e 填写 token。",
         "ui.form_hint" => "Tab / ↑↓ 换字段  空格 切换/拉取/打开  Enter 提交  Esc 取消",
         "ui.confirm_hint" => "y 确认  n/Esc 取消",
         "ui.keep_previous" => "（保留原值）",
         "ui.namespace" => "命名空间",
         "ui.username" => "用户名",
         "ui.password" => "密码",
+        "ui.token" => "Token",
+        "ui.gist_id" => "Gist ID",
+        "ui.gist_setup" => "Gist 设置",
+        "ui.backend_webdav" => "WebDAV",
+        "ui.backend_gist" => "Gist",
         "ui.add_provider" => "添加供应商",
         "ui.edit_provider" => "编辑供应商",
         "ui.sync_setup" => "同步设置",
@@ -452,6 +478,7 @@ fn zh(key: &'static str) -> Option<&'static str> {
         "hint.toggle" => "更改",
         "hint.snapshot" => "快照",
         "hint.setup" => "同步设置",
+        "hint.sync_tab" => "切换 WebDAV/Gist",
         "hint.push" => "推送",
         "hint.pull" => "拉取",
         "hint.restore" => "恢复（会再确认）",
@@ -466,7 +493,7 @@ fn zh(key: &'static str) -> Option<&'static str> {
         "status.test_no_endpoint" => "没有可测试的端点",
         "hint.quit" => "退出",
         "help.keys_title" => "快捷键",
-        "help.data_footnote" => "文件写在内置命名空间 apmux-sync 下（只显示，不能改）。",
+        "help.data_footnote" => "WebDAV 文件写在内置命名空间 apmux-sync 下（只显示，不能改）。Gist 把同样的文件放进一个秘密 gist。",
         "help.settings_footnote" => "自动检测会找 PATH 上的 CLI、配置目录，以及 apmux 里已经存过的供应商。手动模式可以逐个显示或隐藏，至少留一个。",
         "status.hint_picker" => {
             "j/k 移动  PgUp/PgDn 翻页  空格 勾选  / 过滤  ←→ 光标  Enter 确认  Esc 取消"
@@ -507,6 +534,8 @@ fn zh(key: &'static str) -> Option<&'static str> {
         "status.sync_unconfigured" => "还没配置同步。按 e 填写 WebDAV。",
         "status.sync_interrupted" => "同步中断",
         "status.sync_configured" => "同步已配置",
+        "status.gist_configured" => "Gist 已配置: {0}",
+        "status.gist_unconfigured" => "还没配置 Gist 同步。按 e 填写 token。",
         "status.setup_failed" => "设置失败: {0}",
         "status.pushed" => "已推送 {0}",
         "status.push_failed" => "推送失败: {0}",
@@ -526,6 +555,7 @@ fn zh(key: &'static str) -> Option<&'static str> {
         "form.url_empty" => "URL 不能为空",
         "form.user_empty" => "用户名不能为空",
         "form.pass_empty" => "密码不能为空",
+        "form.token_empty" => "Token 不能为空",
 
         "settings.language" => "语言",
         "settings.apps_mode" => "应用检测",
@@ -546,6 +576,17 @@ Enter                提交（在此 URL 下创建 apmux-sync 目录）\n\
 Esc                  取消\n\n\
 密钥留空 = 保留原密码。\n\
 命名空间 apmux-sync 是内置的，不能改。"
+        }
+        "help.gist_setup" => {
+            "\
+Gist 设置\n\n\
+Tab / ↑ ↓            字段间移动\n\
+Enter                提交（查找或创建你的秘密同步 gist）\n\
+Esc                  取消\n\n\
+Token 需要 Gists 读写权限。\n\
+Token 留空 = 保留已存的 token。\n\
+Gist ID 可选：填了就固定用这个 gist\n\
+（支持 id 或 URL），跳过标记搜索。"
         }
         "help.form" => {
             "\

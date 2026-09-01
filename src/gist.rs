@@ -252,7 +252,7 @@ impl GistClient {
         match status {
             200 => Ok(()),
             404 => anyhow::bail!(
-                "gist {gist_id} not found; re-run `{} sync gist setup`",
+                "gist {gist_id} not found; re-run `{} sync setup --backend gist`,",
                 crate::name::NAME
             ),
             401 | 403 => anyhow::bail!("gist auth failed (token needs Gists read/write)"),
@@ -359,7 +359,7 @@ impl crate::cloud::Remote for GistRemote {
         // A single remote container; readiness = the gist still exists.
         if !crate::webdav::block_on(async { self.client.exists(&self.gist_id).await })? {
             anyhow::bail!(
-                "gist {} not found; re-run `{} sync gist setup`",
+                "gist {} not found; re-run `{} sync setup --backend gist`,",
                 self.gist_id,
                 crate::name::NAME
             );
@@ -384,7 +384,7 @@ impl crate::cloud::Remote for GistRemote {
 fn remote_from(cfg: &GistConfig) -> Result<GistRemote> {
     if cfg.gist_id.is_empty() {
         anyhow::bail!(
-            "gist sync is not set up; run `{} sync gist setup`",
+            "gist sync is not set up; run `{} sync setup --backend gist`,",
             crate::name::NAME
         );
     }
@@ -430,7 +430,14 @@ fn push_remote(
 pub(crate) fn pull(paths: &Paths, force: bool) -> Result<String> {
     let mut cfg = load_config(paths)?;
     let remote = remote_from(&cfg)?;
-    pull_remote(paths, &mut cfg, &remote, force)
+    pull_remote(paths, &mut cfg, &remote, force, true)
+}
+
+/// Same as [`pull`] but does not `eprintln` re-apply warnings (TUI toast instead).
+pub(crate) fn pull_quiet(paths: &Paths, force: bool) -> Result<String> {
+    let mut cfg = load_config(paths)?;
+    let remote = remote_from(&cfg)?;
+    pull_remote(paths, &mut cfg, &remote, force, false)
 }
 
 fn pull_remote(
@@ -438,9 +445,10 @@ fn pull_remote(
     cfg: &mut GistConfig,
     remote: &GistRemote,
     force: bool,
+    stderr_warn: bool,
 ) -> Result<String> {
     let mut state = sync_state(cfg);
-    let sha = crate::cloud::pull_with(paths, remote, &mut state, force, true, "gist")?;
+    let sha = crate::cloud::pull_with(paths, remote, &mut state, force, stderr_warn, "gist")?;
     writeback(cfg, state);
     save_config(paths, cfg)?;
     Ok(sha)
@@ -450,12 +458,48 @@ pub(crate) fn status(paths: &Paths) -> Result<String> {
     let cfg = match load_config(paths) {
         Ok(cfg) => cfg,
         Err(_) => anyhow::bail!(
-            "gist sync is not set up; run `{} sync gist setup`",
+            "gist sync is not set up; run `{} sync setup --backend gist`,",
             crate::name::NAME
         ),
     };
     let remote = remote_from(&cfg)?;
     status_remote(paths, &cfg, &remote)
+}
+
+/// Local gist settings for the TUI. Token is never included.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct GistLocal {
+    pub gist_id: String,
+    pub last_pulled_sha256: String,
+    pub last_pushed_sha256: String,
+    pub last_sync_at: String,
+}
+
+pub(crate) fn local_gist(paths: &Paths) -> Option<GistLocal> {
+    let c = load_config(paths).ok()?;
+    Some(GistLocal {
+        gist_id: c.gist_id,
+        last_pulled_sha256: c.last_pulled_sha256,
+        last_pushed_sha256: c.last_pushed_sha256,
+        last_sync_at: c.last_sync_at,
+    })
+}
+
+/// Setup entry point for the TUI: reuses the stored token, or takes a new
+/// one; `gist` pins an id/URL and skips the marker search.
+pub(crate) fn setup_with(
+    paths: &Paths,
+    token: Option<String>,
+    gist: Option<String>,
+) -> Result<String> {
+    let cfg = load_config(paths).unwrap_or_default();
+    let token = match token {
+        Some(t) if !t.trim().is_empty() => t.trim().to_string(),
+        _ if !cfg.token.is_empty() => cfg.token.clone(),
+        _ => anyhow::bail!("token must not be empty"),
+    };
+    let client = GistClient::new(&token)?;
+    setup_client(paths, &client, token, gist)
 }
 
 fn status_remote(paths: &Paths, cfg: &GistConfig, remote: &GistRemote) -> Result<String> {
@@ -637,12 +681,12 @@ mod tests {
         srv.set_remote_manifest_sha(&sha);
         fsutil::atomic_write(&paths.store_file(), &store_bytes("three")).expect("write");
         let remote = remote_for(&srv, &cfg);
-        let err = pull_remote(&paths, &mut cfg, &remote, false)
+        let err = pull_remote(&paths, &mut cfg, &remote, false, true)
             .unwrap_err()
             .to_string();
         assert!(err.contains("local store has changed"), "{err}");
         let remote = remote_for(&srv, &cfg);
-        pull_remote(&paths, &mut cfg, &remote, true).expect("force pull");
+        pull_remote(&paths, &mut cfg, &remote, true, true).expect("force pull");
         let local = std::fs::read_to_string(paths.store_file()).unwrap();
         assert_eq!(local, srv.remote_store().unwrap());
     }
@@ -659,7 +703,7 @@ mod tests {
         let err = push_remote(&paths, &mut cfg, &remote, false)
             .unwrap_err()
             .to_string();
-        assert!(err.contains("sync gist setup"), "{err}");
+        assert!(err.contains("sync setup --backend gist"), "{err}");
     }
 
     #[test]
@@ -702,7 +746,7 @@ mod tests {
         // Pull must still work via the raw fallback.
         let mut cfg = load_config(&paths).unwrap();
         let remote = remote_for(&srv, &cfg);
-        pull_remote(&paths, &mut cfg, &remote, true).expect("pull via raw fallback");
+        pull_remote(&paths, &mut cfg, &remote, true, true).expect("pull via raw fallback");
     }
 }
 

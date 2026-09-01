@@ -91,10 +91,11 @@ apmux delete <name> [--app] [--yes]
 apmux backup [--name <name>]
 apmux restore <name> [--yes] [--no-apply]
 apmux backups
-apmux sync setup --url <webdav-root> --username <user> --password <pass>
-apmux sync push [--force]
-apmux sync pull [--force]
-apmux sync status
+apmux sync setup --backend webdav --url <webdav-root> --username <user> --password <pass>
+apmux sync setup --backend gist --token <github-token> [--gist <id-or-url>]
+apmux sync push [--backend webdav|gist] [--force]
+apmux sync pull [--backend webdav|gist] [--force]
+apmux sync status [--backend webdav|gist]
 apmux import [--db <path>] [--settings <path>] [--dry-run] [--force]
 apmux update [--version <tag>]
 apmux update --check [--json]
@@ -167,7 +168,7 @@ apmux sync setup \
 
 `--url` / `--username` / `--password` are always required. Non-localhost `http://` is rejected. Setup MKCOLs `{url}/apmux-sync` and stores **the root URL you submitted**.
 
-TUI: `s` → `e`, fill URL / user / password. Namespace is a separate read-only row (`apmux-sync`).
+TUI: `s` → `e` (Sync panel, WebDAV tab), fill URL / user / password. Namespace is a separate read-only row (`apmux-sync`).
 
 `push` / `pull` take a timestamp backup before overwriting the store. On conflict, push is refused; `pull` or `--force`. `status` never prints the password.
 
@@ -175,18 +176,20 @@ Credentials: `$APMUX_CONFIG_DIR/webdav.json`, mode `0600`.
 
 ## GitHub Gist
 
-The same `store.json` + `manifest.json` pair, stored in a **secret gist** instead of a WebDAV folder. CLI only (no TUI page).
+The same `store.json` + `manifest.json` pair, stored in a **secret gist** instead of a WebDAV folder.
 
 ```bash
-apmux sync gist setup '<github-token>'
-apmux sync gist push [--force]
-apmux sync gist pull [--force]
-apmux sync gist status
+apmux sync setup --backend gist --token '<github-token>' [--gist <id-or-url>]
+apmux sync push --backend gist [--force]
+apmux sync pull --backend gist [--force]
+apmux sync status --backend gist
 ```
 
-`setup` creates a gist seeded with your current local store, or finds an existing one by the sync-format marker in its description — so a second machine discovers the same gist. `--gist <id-or-url>` pins a specific gist and skips the search.
+`setup` creates a gist seeded with your current local store, or finds an existing one by the sync-format marker in its description — so a second machine discovers the same gist. `--gist <id-or-url>` pins a specific gist and skips the search. `--backend` defaults to `webdav` on every `sync` subcommand; push/pull/status also accept it, so both backends work side by side.
 
 The token needs **Gists read/write** (a fine-grained PAT with that single permission is ideal). Gists are always created secret; `status` never prints the token. Credentials: `$APMUX_CONFIG_DIR/gist.json`, mode `0600`.
+
+TUI: the Sync panel on the Data page has WebDAV/Gist tabs (`Tab` switches); `e` sets up the active backend, `p` pushes, `u` pulls.
 
 `push` / `pull` behave exactly like the WebDAV backend: timestamp backup before overwrite, conflict refusal, `--force` to override.
 
